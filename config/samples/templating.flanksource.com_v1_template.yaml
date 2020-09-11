@@ -1,7 +1,21 @@
-apiVersion: templating.flanksource.com.flanksource.com/v1
+apiVersion: templating.flanksource.com/v1
 kind: Template
 metadata:
-  name: template-sample
+  name: dynamic-ingress-hostnames
+  namespace: platform-system
 spec:
-  # Add fields here
-  foo: bar
+  onceoff: true # need to set this flag as otherwise it will trigger an endless loop appending the domain to iteself.
+  source:
+    namespaceSelector:
+      quack.pusher.com/enabled: "true"
+    object:
+      - apiVersion: extensions/v1beta1
+        kind: Ingress
+  # patches:
+  #   - spec:
+  #       rules:
+  #         # append a dynamic domain specified in a configmap to the domain specified in the ingress
+  #         - host: "{{.source.spec.rules[0].host}}.{{- kget "cm/quack/quack-config" "data.domain" -}}"
+  #           tls:
+  #             hosts:
+  #               -  "{{.source.spec.rules[0].host}}.{{- kget "cm/quack/quack-config" "data.domain" }}"
