@@ -1,0 +1,7 @@
+domain: flanksource.com
+repo: github.com/flanksource/template-operator
+resources:
+- group: templating.flanksource.com
+  kind: Template
+  version: v1
+version: "2"

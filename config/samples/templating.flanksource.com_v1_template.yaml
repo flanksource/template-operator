@@ -1,0 +1,7 @@
+apiVersion: templating.flanksource.com.flanksource.com/v1
+kind: Template
+metadata:
+  name: template-sample
+spec:
+  # Add fields here
+  foo: bar
