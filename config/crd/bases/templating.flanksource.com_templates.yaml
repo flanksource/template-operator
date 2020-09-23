@@ -153,13 +153,9 @@ spec:
                   type: array
               type: object
             patches:
-              description: Patches ia list of strategic merge patches to apply to
+              description: Patches is list of strategic merge patches to apply to
                 to the targets Must specify at least resources or patches or both
               items:
-                description: RawMessage is a raw encoded JSON value. It implements
-                  Marshaler and Unmarshaler and can be used to delay JSON decoding
-                  or precompute a JSON encoding.
-                format: byte
                 type: string
               type: array
             resources:

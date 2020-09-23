@@ -21,13 +21,12 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
-	"k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/yaml"
 
 	templatev1 "github.com/flanksource/template-operator/api/v1"
 	"github.com/flanksource/template-operator/k8s"
@@ -45,6 +44,7 @@ type TemplateReconciler struct {
 // +kubebuilder:rbac:groups=templating.flanksource.com,resources=templates/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=extensions,resources=ingresses,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch
 
 func (r *TemplateReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	ctx := context.Background()
@@ -52,7 +52,7 @@ func (r *TemplateReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 
 	template := &templatev1.Template{}
 	if err := r.Get(ctx, req.NamespacedName, template); err != nil {
-		if errors.IsNotFound(err) {
+		if kerrors.IsNotFound(err) {
 			log.Error(err, "template not found")
 			return reconcile.Result{}, nil
 		}
@@ -60,43 +60,27 @@ func (r *TemplateReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		return reconcile.Result{}, err
 	}
 
-	labelMap, err := metav1.LabelSelectorAsMap(&template.Spec.Source.LabelSelector)
+	filter := &k8s.Filter{DynamicClient: r.DynamicClient, Log: log}
+	resourcePatches, err := filter.ResourcesForTemplate(ctx, template)
 	if err != nil {
-		log.Error(err, "failed to convert namespace label selector to map")
-		return reconcile.Result{}, err
-	}
-	listOptions := metav1.ListOptions{
-		LabelSelector: labels.SelectorFromSet(labelMap).String(),
-	}
-	namespaces, err := r.DynamicClient.Clientset.CoreV1().Namespaces().List(ctx, listOptions)
-	if err != nil {
-		log.Error(err, "failed to list namespaces")
 		return reconcile.Result{}, err
 	}
 
-	for _, namespace := range namespaces.Items {
-		for _, os := range template.Spec.Source.ObjectSelector {
-			client, err := r.DynamicClient.GetClientByKind(os.Kind)
-			if err != nil {
-				log.Error(err, "failed to get dynamic client for", "kind", os.Kind)
-				continue
-			}
-			options := metav1.ListOptions{
-				FieldSelector: template.Spec.Source.FieldSelector,
-				// LabelSelector: template.Spec.Source.LabelSelector.String(),
-			}
-			resources, err := client.Namespace(namespace.Name).List(ctx, options)
-			if err != nil {
-				log.Error(err, "failed to list resources for", "kind", os.Kind)
-				continue
-			}
+	patchApplier := k8s.NewPatchApplier(r.DynamicClient.Clientset, log)
 
-			fmt.Printf("Found %s resources\n", len(resources.Items))
+	for _, resourcePatch := range resourcePatches {
+		yml, _ := yaml.Marshal(resourcePatch.Resource)
+		fmt.Printf("=================\nResource before:\n%s\n---\n", yml)
 
-			for _, r := range resources.Items {
-				fmt.Println("Found resource", "kind", r.GetKind(), "name", r.GetName(), "namespace", r.GetNamespace())
-			}
+		newResource, err := patchApplier.Apply(resourcePatch.Resource, resourcePatch.Patch)
+		if err != nil {
+			log.Error(err, "failed to apply patch to resource", "kind", resourcePatch.Kind, "name", resourcePatch.Resource.GetName(), "namespace", resourcePatch.Resource.GetNamespace())
+			continue
 		}
+		resource := *newResource
+
+		yml, _ = yaml.Marshal(resource)
+		fmt.Printf("=================\nResource after:\n%s\n---\n", yml)
 	}
 
 	return ctrl.Result{}, nil
