@@ -23,6 +23,7 @@ type ResourcePatch struct {
 	Patch      string
 	Kind       string
 	APIVersion string
+	PatchType  PatchType
 }
 
 func (f *Filter) ResourcesForTemplate(ctx context.Context, template *templatev1.Template) ([]ResourcePatch, error) {
@@ -44,31 +45,15 @@ func (f *Filter) ResourcesForTemplate(ctx context.Context, template *templatev1.
 
 	for _, namespace := range namespaces.Items {
 		for _, patch := range template.Spec.Patches {
-
 			typemeta := metav1.TypeMeta{}
 			if err := yaml.Unmarshal([]byte(patch), &typemeta); err != nil {
 				f.Log.Error(err, "failed to parse patch type meta")
 				continue
 			}
 
-			client, err := f.DynamicClient.GetClientByKind(typemeta.Kind)
+			resources, err := f.getForTypeMeta(ctx, typemeta, namespace.Name, template)
 			if err != nil {
-				f.Log.Error(err, "failed to get dynamic client for", "kind", typemeta.Kind)
-				continue
-			}
-
-			labelSelector, err := labelSelectorToString(template.Spec.Source.LabelSelector)
-			if err != nil {
-				continue
-			}
-
-			options := metav1.ListOptions{
-				FieldSelector: template.Spec.Source.FieldSelector,
-				LabelSelector: labelSelector,
-			}
-			resources, err := client.Namespace(namespace.Name).List(ctx, options)
-			if err != nil {
-				f.Log.Error(err, "failed to list resources for", "kind", typemeta.Kind)
+				f.Log.Error(err, "failed to list resources")
 				continue
 			}
 
@@ -84,6 +69,32 @@ func (f *Filter) ResourcesForTemplate(ctx context.Context, template *templatev1.
 					Patch:      patch,
 					Kind:       typemeta.Kind,
 					APIVersion: typemeta.APIVersion,
+					PatchType:  PatchTypeYaml,
+				}
+				results = append(results, resourcePatch)
+			}
+		}
+
+		for _, patch := range template.Spec.JsonPatches {
+			resources, err := f.getForTypeMeta(ctx, patch.Object, namespace.Name, template)
+			if err != nil {
+				f.Log.Error(err, "failed to list resources")
+				continue
+			}
+
+			fmt.Printf("Found %d resources\n", len(resources.Items))
+
+			for _, r := range resources.Items {
+				fmt.Println("Found resource", "kind", r.GetKind(), "name", r.GetName(), "namespace", r.GetNamespace())
+			}
+
+			for _, item := range resources.Items {
+				resourcePatch := ResourcePatch{
+					Resource:   item,
+					Patch:      patch.Patch,
+					Kind:       patch.Object.Kind,
+					APIVersion: patch.Object.APIVersion,
+					PatchType:  PatchTypeJSON,
 				}
 				results = append(results, resourcePatch)
 			}
@@ -91,6 +102,28 @@ func (f *Filter) ResourcesForTemplate(ctx context.Context, template *templatev1.
 	}
 
 	return results, nil
+}
+
+func (f *Filter) getForTypeMeta(ctx context.Context, typemeta metav1.TypeMeta, namespace string, template *templatev1.Template) (*unstructured.UnstructuredList, error) {
+	client, err := f.DynamicClient.GetClientByKind(typemeta.Kind)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to get dynamic client for kind %s", typemeta.Kind)
+	}
+
+	labelSelector, err := labelSelectorToString(template.Spec.Source.LabelSelector)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to get label selector")
+	}
+
+	options := metav1.ListOptions{
+		FieldSelector: template.Spec.Source.FieldSelector,
+		LabelSelector: labelSelector,
+	}
+	resources, err := client.Namespace(namespace).List(ctx, options)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to list resources for kind %s", typemeta.Kind)
+	}
+	return resources, nil
 }
 
 func labelSelectorToString(l metav1.LabelSelector) (string, error) {

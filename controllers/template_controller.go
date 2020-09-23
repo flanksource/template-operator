@@ -72,7 +72,7 @@ func (r *TemplateReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		yml, _ := yaml.Marshal(resourcePatch.Resource)
 		fmt.Printf("=================\nResource before:\n%s\n---\n", yml)
 
-		newResource, err := patchApplier.Apply(resourcePatch.Resource, resourcePatch.Patch)
+		newResource, err := patchApplier.Apply(resourcePatch.Resource, resourcePatch.Patch, resourcePatch.PatchType)
 		if err != nil {
 			log.Error(err, "failed to apply patch to resource", "kind", resourcePatch.Kind, "name", resourcePatch.Resource.GetName(), "namespace", resourcePatch.Resource.GetNamespace())
 			continue

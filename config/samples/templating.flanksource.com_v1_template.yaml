@@ -20,3 +20,13 @@ spec:
         tls:
           - hosts:
             - "{{.source.metadata.name}}.{{- kget "cm/quack/quack-config" "data.domain" }}"
+  jsonPatches:
+    - object:
+        apiVersion: extensions/v1beta1
+        kind: Ingress
+      patch: |
+        {
+          "op": "replace",
+          "path": "/spec/rules/0/host",
+          "value": "{{.source.spec.rules[0].host}}.{{-   kget "cm/quack/quack-config" "data.domain" -}}"
+        }

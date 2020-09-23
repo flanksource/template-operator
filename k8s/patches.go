@@ -19,9 +19,17 @@ import (
 	"k8s.io/cli-runtime/pkg/kustomize"
 	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/kustomize/pkg/fs"
+	"sigs.k8s.io/kustomize/pkg/gvk"
 	"sigs.k8s.io/kustomize/pkg/patch"
 	"sigs.k8s.io/kustomize/pkg/types"
 	"sigs.k8s.io/yaml"
+)
+
+type PatchType string
+
+var (
+	PatchTypeYaml PatchType = "yaml"
+	PatchTypeJSON PatchType = "json"
 )
 
 type PatchApplier struct {
@@ -37,13 +45,15 @@ func NewPatchApplier(clientset *kubernetes.Clientset, log logr.Logger) *PatchApp
 	}
 
 	p.FuncMap = template.FuncMap{
-		"kget": p.KGet,
+		"kget":     p.KGet,
+		"jsonPath": p.JSONPath,
 	}
 	return p
 }
 
-func (p *PatchApplier) Apply(resource unstructured.Unstructured, yamlPatch string) (*unstructured.Unstructured, error) {
-	t, err := template.New("patch").Funcs(p.FuncMap).Parse(yamlPatch)
+func (p *PatchApplier) Apply(resource unstructured.Unstructured, patchStr string, patchType PatchType) (*unstructured.Unstructured, error) {
+	fmt.Printf("Template patch:\n%s\n====\n", patchStr)
+	t, err := template.New("patch").Funcs(p.FuncMap).Parse(patchStr)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create template from patch")
 	}
@@ -54,18 +64,6 @@ func (p *PatchApplier) Apply(resource unstructured.Unstructured, yamlPatch strin
 	}
 	if err := t.Execute(&tpl, data); err != nil {
 		return nil, errors.Wrap(err, "failed to execute template")
-	}
-
-	finalPatch := map[string]interface{}{}
-	if err := fyaml.Unmarshal(tpl.Bytes(), &finalPatch); err != nil {
-		return nil, errors.Wrap(err, "failed to unmarshal template yaml")
-	}
-	patchObject := &unstructured.Unstructured{Object: finalPatch}
-	if patchObject.GetName() == "" {
-		patchObject.SetName(resource.GetName())
-	}
-	if patchObject.GetNamespace() == "" {
-		patchObject.SetNamespace(resource.GetNamespace())
 	}
 
 	// create an in memory fs to use for the kustomization
@@ -89,16 +87,65 @@ func (p *PatchApplier) Apply(resource unstructured.Unstructured, yamlPatch strin
 
 	kustomizationFile := &types.Kustomization{Resources: []string{name}}
 
-	// writes strategic merge patches to files in the temp file system
-	kustomizationFile.PatchesStrategicMerge = []patch.StrategicMerge{}
-	b, err = yaml.Marshal(patchObject.Object)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to marshal patch object")
-	}
+	if patchType == PatchTypeYaml {
+		finalPatch := map[string]interface{}{}
+		templateBytes := tpl.Bytes()
+		if err := fyaml.Unmarshal(templateBytes, &finalPatch); err != nil {
+			return nil, errors.Wrap(err, "failed to unmarshal template yaml")
+		}
+		patchObject := &unstructured.Unstructured{Object: finalPatch}
+		if patchObject.GetName() == "" {
+			patchObject.SetName(resource.GetName())
+		}
+		if patchObject.GetNamespace() == "" {
+			patchObject.SetNamespace(resource.GetNamespace())
+		}
 
-	name = fmt.Sprintf("patch-0.yaml")
-	memFS.WriteFile(filepath.Join(fakeDir, name), b) // nolint: errcheck
-	kustomizationFile.PatchesStrategicMerge = []patch.StrategicMerge{patch.StrategicMerge(name)}
+		// writes strategic merge patches to files in the temp file system
+		kustomizationFile.PatchesStrategicMerge = []patch.StrategicMerge{}
+		b, err = yaml.Marshal(patchObject.Object)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to marshal patch object")
+		}
+
+		name = fmt.Sprintf("patch-0.yaml")
+		memFS.WriteFile(filepath.Join(fakeDir, name), b) // nolint: errcheck
+		kustomizationFile.PatchesStrategicMerge = []patch.StrategicMerge{patch.StrategicMerge(name)}
+
+	} else if patchType == PatchTypeJSON {
+		name = fmt.Sprintf("patch-0.json")
+		templateBytes := tpl.Bytes()
+		memFS.WriteFile(filepath.Join(fakeDir, name), templateBytes) // nolint: errcheck
+		// writes json patches to files in the temp file system
+
+		version := resource.GetAPIVersion()
+		parts := strings.Split(version, "/")
+		var apiVersion, apiGroup string
+		if len(parts) == 1 {
+			apiGroup = ""
+			apiVersion = parts[0]
+		} else {
+			apiGroup = parts[0]
+			apiVersion = parts[1]
+		}
+		kustomizationFile.PatchesJson6902 = []patch.Json6902{
+			{
+				Target: &patch.Target{
+					Gvk: gvk.Gvk{
+						Group:   apiGroup,
+						Version: apiVersion,
+						Kind:    resource.GetKind(),
+					},
+					Name:      resource.GetName(),
+					Namespace: resource.GetNamespace(),
+				},
+				Path: name,
+			},
+		}
+
+	} else {
+		return nil, errors.Errorf("Invalid patch type %s", patchType)
+	}
 
 	// writes the kustomization file to the temp file system
 	kbytes, err := yaml.Marshal(kustomizationFile)
@@ -114,7 +161,7 @@ func (p *PatchApplier) Apply(resource unstructured.Unstructured, yamlPatch strin
 	}
 
 	kustomizeBytes := out.Bytes()
-	fmt.Printf("Kustomize bytes: %s\n", kustomizeBytes)
+	// fmt.Printf("Kustomize bytes: %s\n", kustomizeBytes)
 
 	if err := yaml.Unmarshal(kustomizeBytes, &resource); err != nil {
 		return nil, errors.Wrap(err, "failed to unmarshal kustomize output into resource")
@@ -144,6 +191,7 @@ func (p *PatchApplier) KGet(path, jsonpath string) string {
 		encodedJSON, err := json.Marshal(cm)
 		if err != nil {
 			p.Log.Error(err, "failed to encode json", "name", name, "namespace", namespace)
+			return ""
 		}
 
 		value := gjson.Get(string(encodedJSON), jsonpath)
@@ -153,31 +201,15 @@ func (p *PatchApplier) KGet(path, jsonpath string) string {
 	return ""
 }
 
-// func oldApply() {
-// 	t, err := template.New("patch").Funcs(p.FuncMap).Parse(patch)
-// 	if err != nil {
-// 		return nil, errors.Wrap(err, "failed to create template from patch")
-// 	}
+func (p *PatchApplier) JSONPath(object interface{}, jsonpath string) string {
+	jsonObject, err := json.Marshal(object)
+	if err != nil {
+		p.Log.Error(err, "failed to encode json", "object", object)
+		return ""
+	}
 
-// 	var tpl bytes.Buffer
-// 	var data = map[string]interface{}{
-// 		"source": resource.Object,
-// 	}
-// 	if err := t.Execute(&tpl, data); err != nil {
-// 		return nil, errors.Wrap(err, "failed to execute template")
-// 	}
-
-// 	templateBytes := tpl.Bytes()
-// 	fmt.Printf("Template bytes\n%s\n", templateBytes)
-
-// 	// templateResource := map[string]interface{}
-// 	// if err := yaml.Unmarshal(templateBytes, &templateResource); err != nil {
-// 	// return nil, errors.Wrap(err, "failed to unmarshal template into resource")
-// 	// }
-
-// 	if err := yaml.Unmarshal(templateBytes, &resource.Object); err != nil {
-// 		return nil, errors.Wrap(err, "failed to unmarshal patch into struct")
-// 	}
-
-// 	return &resource, nil
-// }
+	fmt.Printf("Object:\n%s\n", string(jsonObject))
+	fmt.Printf("JSONPATH: %s\n", jsonpath)
+	value := gjson.Get(string(jsonObject), jsonpath)
+	return value.String()
+}
