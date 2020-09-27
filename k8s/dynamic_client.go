@@ -1,6 +1,7 @@
 package k8s
 
 import (
+	"strings"
 	"sync"
 
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -30,9 +31,21 @@ func NewDynamicClient(clientset *kubernetes.Clientset, dynamicClient dynamic.Int
 	return client
 }
 
-func (c *DynamicClient) GetClientByKind(kind string) (dynamic.NamespaceableResourceInterface, error) {
+func (c *DynamicClient) GetClientByKind(kind string, apiVersion string) (dynamic.NamespaceableResourceInterface, error) {
+	var group, version string
+	parts := strings.Split(apiVersion, "/")
+	if len(parts) == 1 {
+		group = "core"
+		version = parts[0]
+	} else {
+		group = parts[0]
+		version = parts[1]
+	}
+
 	rm, _ := c.GetRestMapper()
 	gvk, err := rm.KindFor(schema.GroupVersionResource{
+		Group:    group,
+		Version:  version,
 		Resource: kind,
 	})
 	if err != nil {

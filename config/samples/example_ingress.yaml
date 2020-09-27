@@ -1,0 +1,19 @@
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: example-ingress
+  namespace: platform-system
+  labels:
+    "platform.flanksource.com/autocomplete-ingress-domain": "true"
+spec:
+  rules:
+  - host: example-ingress
+    http:
+      paths:
+      - backend:
+          serviceName: podinfo
+          servicePort: 9898
+  tls:
+  - hosts:
+    - example-ingress
+    secretName: example-ingress-tls

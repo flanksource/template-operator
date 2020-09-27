@@ -51,7 +51,7 @@ func NewPatchApplier(clientset *kubernetes.Clientset, log logr.Logger) *PatchApp
 	return p
 }
 
-func (p *PatchApplier) Apply(resource unstructured.Unstructured, patchStr string, patchType PatchType) (*unstructured.Unstructured, error) {
+func (p *PatchApplier) Apply(resource *unstructured.Unstructured, patchStr string, patchType PatchType) (*unstructured.Unstructured, error) {
 	fmt.Printf("Template patch:\n%s\n====\n", patchStr)
 	t, err := template.New("patch").Funcs(p.FuncMap).Parse(patchStr)
 	if err != nil {
@@ -167,7 +167,7 @@ func (p *PatchApplier) Apply(resource unstructured.Unstructured, patchStr string
 		return nil, errors.Wrap(err, "failed to unmarshal kustomize output into resource")
 	}
 
-	return &resource, nil
+	return resource, nil
 }
 
 func (p *PatchApplier) KGet(path, jsonpath string) string {

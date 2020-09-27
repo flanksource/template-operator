@@ -14,7 +14,7 @@ import (
 
 var _ = Describe("Patches", func() {
 	It("Merges json patch Ingress", func() {
-		resource := unstructured.Unstructured{
+		resource := &unstructured.Unstructured{
 			Object: map[string]interface{}{
 				"kind":       "Ingress",
 				"apiVersion": "extensions/v1beta1",
@@ -104,7 +104,7 @@ spec:
 	})
 
 	It("Merges json patch Service", func() {
-		resource := unstructured.Unstructured{
+		resource := &unstructured.Unstructured{
 			Object: map[string]interface{}{
 				"kind":       "Service",
 				"apiVersion": "v1",
@@ -166,7 +166,7 @@ spec:
 	})
 
 	It("Merges annotations and labels", func() {
-		resource := unstructured.Unstructured{
+		resource := &unstructured.Unstructured{
 			Object: map[string]interface{}{
 				"kind":       "Ingress",
 				"apiVersion": "extensions/v1beta1",
