@@ -38,10 +38,12 @@ type TemplateSpec struct {
 	// +optional
 	Resources []json.RawMessage `json:"resources,omitempty"`
 
-	// Patches ia list of strategic merge patches to apply to to the targets
+	// Patches is list of strategic merge patches to apply to to the targets
 	// Must specify at least resources or patches or both
 	// +optional
-	Patches []json.RawMessage `json:"patches,omitempty"`
+	Patches []string `json:"patches,omitempty"`
+
+	JsonPatches []JsonPatch `json:"jsonPatches,omitempty"`
 
 	// Onceoff will not apply templating more than once (usually at admission stage)
 	Onceoff bool `json:"onceoff,omitempty"`
@@ -56,12 +58,16 @@ type ResourceSelector struct {
 	NamespaceSelector  metav1.LabelSelector `json:"namespaceSelector,omitempty"`
 	AnnotationSelector map[string]string    `json:"annotationSelector,omitempty"`
 	FieldSelector      string               `json:"fieldSelector,omitempty"`
-	ObjectSelector     []ObjectSelector     `json:"object,omitempty"`
 }
 
 type ObjectSelector struct {
 	Kind       string `json:"kind,omitempty"`
 	APIVersion string `json:"apiVersion,omitempty"`
+}
+
+type JsonPatch struct {
+	Object metav1.TypeMeta `json:"object,omitempty"`
+	Patch  string          `json:"patch,omitempty"`
 }
 
 // +kubebuilder:object:root=true

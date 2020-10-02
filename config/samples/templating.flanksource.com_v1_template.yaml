@@ -1,7 +1,39 @@
-apiVersion: templating.flanksource.com.flanksource.com/v1
+apiVersion: templating.flanksource.com/v1
 kind: Template
 metadata:
-  name: template-sample
+  name: dynamic-ingress-hostnames
+  namespace: platform-system
 spec:
-  # Add fields here
-  foo: bar
+  onceoff: true # need to set this flag as otherwise it will trigger an endless loop appending the domain to iteself.
+  source:
+    namespaceSelector:
+      matchLabels:
+        quack.pusher.com/enabled: "true"
+        control-plane: controller-manager
+    labelSelector:
+      matchLabels:
+        "platform.flanksource.com/autocomplete-ingress-domain": "true"
+  patches:
+    - |
+      apiVersion: extensions/v1beta1
+      kind: Ingress
+      metadata:
+        annotations:
+          "platform.flanksource.com/applied-domain": "{{- kget "cm/quack/quack-config" "data.domain" -}}"
+  jsonPatches:
+    - object:
+        apiVersion: extensions/v1beta1
+        kind: Ingress
+      patch: |
+        [
+          {
+            "op": "replace",
+            "path": "/spec/rules/0/host",
+            "value": "{{ jsonPath .source "spec.rules.0.host" }}.{{- kget "cm/quack/quack-config" "data.domain" -}}"
+          },
+          {
+            "op": "replace",
+            "path": "/spec/tls/0/hosts/0",
+            "value": "{{ jsonPath .source "spec.tls.0.hosts.0" }}.{{- kget "cm/quack/quack-config" "data.domain" -}}"
+          }
+        ]

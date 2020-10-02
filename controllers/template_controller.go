@@ -20,34 +20,54 @@ import (
 	"context"
 
 	"github.com/go-logr/logr"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	templatingflanksourcecomv1 "github.com/flanksource/template-operator/api/v1"
+	templatev1 "github.com/flanksource/template-operator/api/v1"
+	"github.com/flanksource/template-operator/k8s"
 )
 
 // TemplateReconciler reconciles a Template object
 type TemplateReconciler struct {
 	client.Client
-	Log    logr.Logger
-	Scheme *runtime.Scheme
+	DynamicClient *k8s.DynamicClient
+	Log           logr.Logger
+	Scheme        *runtime.Scheme
 }
 
-// +kubebuilder:rbac:groups=templating.flanksource.com.flanksource.com,resources=templates,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=templating.flanksource.com.flanksource.com,resources=templates/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=templating.flanksource.com,resources=templates,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=templating.flanksource.com,resources=templates/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=extensions,resources=ingresses,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch
 
 func (r *TemplateReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
-	_ = context.Background()
-	_ = r.Log.WithValues("template", req.NamespacedName)
+	ctx := context.Background()
+	log := r.Log.WithValues("template", req.NamespacedName)
 
-	// your logic here
+	template := &templatev1.Template{}
+	if err := r.Get(ctx, req.NamespacedName, template); err != nil {
+		if kerrors.IsNotFound(err) {
+			log.Error(err, "template not found")
+			return reconcile.Result{}, nil
+		}
+		log.Error(err, "failed to get template")
+		return reconcile.Result{}, err
+	}
+
+	tm := k8s.NewTemplateManager(r.DynamicClient, log)
+	if err := tm.Run(ctx, template); err != nil {
+		return reconcile.Result{}, err
+	}
 
 	return ctrl.Result{}, nil
 }
 
 func (r *TemplateReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&templatingflanksourcecomv1.Template{}).
+		For(&templatev1.Template{}).
 		Complete(r)
 }

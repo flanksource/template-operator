@@ -16,11 +16,13 @@ spec:
   selector:
     matchLabels:
       control-plane: controller-manager
+      app: template-operator
   replicas: 1
   template:
     metadata:
       labels:
         control-plane: controller-manager
+        app: template-operator
     spec:
       containers:
       - command:

@@ -21,13 +21,17 @@ import (
 	"os"
 
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
+	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	templatingflanksourcecomv1 "github.com/flanksource/template-operator/api/v1"
 	"github.com/flanksource/template-operator/controllers"
+	"github.com/flanksource/template-operator/k8s"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -66,10 +70,30 @@ func main() {
 		os.Exit(1)
 	}
 
+	kubeConfig, err := rest.InClusterConfig()
+	if err != nil {
+		setupLog.Error(err, "failed to get in cluster config")
+		os.Exit(1)
+	}
+	clientset, err := kubernetes.NewForConfig(kubeConfig)
+	if err != nil {
+		setupLog.Error(err, "failed to create clientset")
+		os.Exit(1)
+	}
+
+	dc, err := dynamic.NewForConfig(kubeConfig)
+	if err != nil {
+		setupLog.Error(err, "failed to get dynamic client")
+		os.Exit(1)
+	}
+
+	dynamicClient := k8s.NewDynamicClient(clientset, dc)
+
 	if err = (&controllers.TemplateReconciler{
-		Client: mgr.GetClient(),
-		Log:    ctrl.Log.WithName("controllers").WithName("Template"),
-		Scheme: mgr.GetScheme(),
+		Client:        mgr.GetClient(),
+		DynamicClient: dynamicClient,
+		Log:           ctrl.Log.WithName("controllers").WithName("Template"),
+		Scheme:        mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Template")
 		os.Exit(1)
