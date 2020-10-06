@@ -17,14 +17,12 @@ limitations under the License.
 package v1
 
 import (
-	"encoding/json"
-
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	runtime "k8s.io/apimachinery/pkg/runtime"
 )
 
 // TemplateSpec defines the desired state of Template
 type TemplateSpec struct {
-
 	// Source selects objects on which to use as a templating object
 	Source ResourceSelector `json:"source,omitempty"`
 
@@ -33,10 +31,10 @@ type TemplateSpec struct {
 	// +optional
 	PatchTarget ResourceSelector `json:"patchTarget,omitempty"`
 
-	// Resources is a list of new resources to create for each source objected found
+	// Resources is a list of new resources to create for each source object found
 	// Must specify at least resources or patches or both
 	// +optional
-	Resources []json.RawMessage `json:"resources,omitempty"`
+	Resources []runtime.RawExtension `json:"resources,omitempty"`
 
 	// Patches is list of strategic merge patches to apply to to the targets
 	// Must specify at least resources or patches or both
@@ -58,6 +56,8 @@ type ResourceSelector struct {
 	NamespaceSelector  metav1.LabelSelector `json:"namespaceSelector,omitempty"`
 	AnnotationSelector map[string]string    `json:"annotationSelector,omitempty"`
 	FieldSelector      string               `json:"fieldSelector,omitempty"`
+	APIVersion         string               `json:"apiVersion,omitempty"`
+	Kind               string               `json:"kind,omitempty"`
 }
 
 type ObjectSelector struct {
@@ -71,7 +71,8 @@ type JsonPatch struct {
 }
 
 // +kubebuilder:object:root=true
-
+// +genclient
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // Template is the Schema for the templates API
 type Template struct {
 	metav1.TypeMeta   `json:",inline"`

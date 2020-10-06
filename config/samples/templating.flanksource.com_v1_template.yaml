@@ -6,6 +6,8 @@ metadata:
 spec:
   onceoff: true # need to set this flag as otherwise it will trigger an endless loop appending the domain to iteself.
   source:
+    apiVersion: extensions/v1beta1
+    kind: Ingress
     namespaceSelector:
       matchLabels:
         quack.pusher.com/enabled: "true"

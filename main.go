@@ -19,16 +19,15 @@ package main
 import (
 	"flag"
 	"os"
+	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/dynamic"
-	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
-	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
+	"github.com/flanksource/commons/logger"
 	templatingflanksourcecomv1 "github.com/flanksource/template-operator/api/v1"
 	"github.com/flanksource/template-operator/controllers"
 	"github.com/flanksource/template-operator/k8s"
@@ -50,6 +49,8 @@ func init() {
 func main() {
 	var metricsAddr string
 	var enableLeaderElection bool
+	var syncPeriod time.Duration
+	flag.DurationVar(&syncPeriod, "sync-period", 5*time.Minute, "The time duration to run a full reconcole")
 	flag.StringVar(&metricsAddr, "metrics-addr", ":8080", "The address the metric endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "enable-leader-election", false,
 		"Enable leader election for controller manager. "+
@@ -62,38 +63,20 @@ func main() {
 		Scheme:             scheme,
 		MetricsBindAddress: metricsAddr,
 		Port:               9443,
+		SyncPeriod:         &syncPeriod,
 		LeaderElection:     enableLeaderElection,
-		LeaderElectionID:   "ba344e13.my.domain",
+		LeaderElectionID:   "ba344e13.flanksource.com",
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
 	}
 
-	kubeConfig, err := rest.InClusterConfig()
-	if err != nil {
-		setupLog.Error(err, "failed to get in cluster config")
-		os.Exit(1)
-	}
-	clientset, err := kubernetes.NewForConfig(kubeConfig)
-	if err != nil {
-		setupLog.Error(err, "failed to create clientset")
-		os.Exit(1)
-	}
-
-	dc, err := dynamic.NewForConfig(kubeConfig)
-	if err != nil {
-		setupLog.Error(err, "failed to get dynamic client")
-		os.Exit(1)
-	}
-
-	dynamicClient := k8s.NewDynamicClient(clientset, dc)
-
+	client := k8s.NewClient(mgr.GetConfig(), logger.NewLogger("client", "k8"))
 	if err = (&controllers.TemplateReconciler{
-		Client:        mgr.GetClient(),
-		DynamicClient: dynamicClient,
-		Log:           ctrl.Log.WithName("controllers").WithName("Template"),
-		Scheme:        mgr.GetScheme(),
+		Client: client,
+		Log:    ctrl.Log.WithName("controllers").WithName("Template"),
+		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Template")
 		os.Exit(1)

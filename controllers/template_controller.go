@@ -32,10 +32,10 @@ import (
 
 // TemplateReconciler reconciles a Template object
 type TemplateReconciler struct {
-	client.Client
-	DynamicClient *k8s.DynamicClient
-	Log           logr.Logger
-	Scheme        *runtime.Scheme
+	ControllerClient client.Client
+	Client           *k8s.Client
+	Log              logr.Logger
+	Scheme           *runtime.Scheme
 }
 
 // +kubebuilder:rbac:groups=templating.flanksource.com,resources=templates,verbs=get;list;watch;create;update;patch;delete
@@ -49,7 +49,7 @@ func (r *TemplateReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	log := r.Log.WithValues("template", req.NamespacedName)
 
 	template := &templatev1.Template{}
-	if err := r.Get(ctx, req.NamespacedName, template); err != nil {
+	if err := r.ControllerClient.Get(ctx, req.NamespacedName, template); err != nil {
 		if kerrors.IsNotFound(err) {
 			log.Error(err, "template not found")
 			return reconcile.Result{}, nil
@@ -58,7 +58,7 @@ func (r *TemplateReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		return reconcile.Result{}, err
 	}
 
-	tm := k8s.NewTemplateManager(r.DynamicClient, log)
+	tm := k8s.NewTemplateManager(r.Client, log)
 	if err := tm.Run(ctx, template); err != nil {
 		return reconcile.Result{}, err
 	}
@@ -67,6 +67,7 @@ func (r *TemplateReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 }
 
 func (r *TemplateReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	r.ControllerClient = mgr.GetClient()
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&templatev1.Template{}).
 		Complete(r)
