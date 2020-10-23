@@ -1,13 +1,20 @@
 package k8s
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"regexp"
+	"strings"
 
-	"github.com/flanksource/commons/text"
 	templatev1 "github.com/flanksource/template-operator/api/v1"
+	"github.com/ghodss/yaml"
 	"github.com/go-logr/logr"
+
+	"text/template"
+
+	"github.com/hairyhenderson/gomplate/v3"
+
 	"github.com/pkg/errors"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -100,15 +107,16 @@ func (tm *TemplateManager) selectResources(ctx context.Context, selector *templa
 }
 
 func (tm *TemplateManager) Run(ctx context.Context, template *templatev1.Template) error {
+	tm.Log.Info("Reconciling", "template", template.Name)
 	sources, err := tm.selectResources(ctx, &template.Spec.Source)
 	if err != nil {
 		return err
 	}
+	tm.Log.Info("Found resources for template", "template", template.Name, "count", len(sources))
 
 	for _, source := range sources {
 		target := &source
 		if !template.Spec.Onceoff || !alreadyApplied(template, *target) {
-
 			for _, patch := range template.Spec.Patches {
 				target, err = tm.PatchApplier.Apply(target, patch, PatchTypeYaml)
 				if err != nil {
@@ -128,12 +136,14 @@ func (tm *TemplateManager) Run(ctx context.Context, template *templatev1.Templat
 				}
 			}
 		}
+
 		for _, item := range template.Spec.Resources {
-			data, err := text.Template(string(item.Raw), target.Object)
+			data, err := tm.Template(item.Raw, target.Object)
 			if err != nil {
 				return err
 			}
-			objs, err := GetUnstructuredObjects([]byte(data))
+
+			objs, err := GetUnstructuredObjects(data)
 			if err != nil {
 				return nil
 			}
@@ -152,6 +162,38 @@ func (tm *TemplateManager) Run(ctx context.Context, template *templatev1.Templat
 		}
 	}
 	return nil
+}
+
+var funcs template.FuncMap
+
+func (tm *TemplateManager) Template(data []byte, vars interface{}) ([]byte, error) {
+	convertedYAML, err := yaml.JSONToYAML(data)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(funcs) == 0 {
+		funcs = gomplate.Funcs(nil)
+		funcs["kget"] = tm.PatchApplier.KGet
+	}
+
+	tpl, err := template.New("").Funcs(funcs).Parse(string(convertedYAML))
+
+	if err != nil {
+		return nil, fmt.Errorf("invalid template %s: %v", strings.Split(string(data), "\n")[0], err)
+	}
+
+	rawVars, _ := yaml.Marshal(vars)
+	unstructured := make(map[string]interface{})
+	if err := yaml.Unmarshal(rawVars, &unstructured); err != nil {
+		return nil, err
+	}
+
+	var buf bytes.Buffer
+	if err := tpl.Execute(&buf, unstructured); err != nil {
+		return nil, fmt.Errorf("error executing template %s: %v", strings.Split(string(data), "\n")[0], err)
+	}
+	return buf.Bytes(), nil
 }
 
 func labelSelectorToString(l metav1.LabelSelector) (string, error) {

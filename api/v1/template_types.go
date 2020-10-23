@@ -73,6 +73,7 @@ type JsonPatch struct {
 // +kubebuilder:object:root=true
 // +genclient
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+// +kubebuilder:resource:scope="Cluster"
 // Template is the Schema for the templates API
 type Template struct {
 	metav1.TypeMeta   `json:",inline"`

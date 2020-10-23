@@ -19,8 +19,12 @@ test: generate fmt vet manifests
 
 # Build manager binary
 # manager: generate fmt vet
-manager: 
+manager:
 	go build -o bin/manager main.go
+
+.PHONY: linux
+linux:
+	GOOS=linux go build -o bin/manager main.go
 
 # Run against the configured Kubernetes cluster in ~/.kube/config
 run: generate fmt vet manifests
@@ -56,7 +60,7 @@ generate: controller-gen
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
 
 # Build the docker image
-docker-build: 
+docker-build:
 	docker build . -t ${IMG}
 
 # Push the docker image

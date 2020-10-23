@@ -193,9 +193,15 @@ func (p *PatchApplier) KGet(path, jsonpath string) string {
 			p.Log.Error(err, "failed to encode json", "name", name, "namespace", namespace)
 			return ""
 		}
-
 		value := gjson.Get(string(encodedJSON), jsonpath)
 		return value.String()
+	} else if kind == "secret" {
+		secret, err := p.Clientset.CoreV1().Secrets(namespace).Get(context.Background(), name, metav1.GetOptions{})
+		if err != nil {
+			p.Log.Error(err, "failed to read secret", "name", name, "namespace", namespace)
+			return ""
+		}
+		return string(secret.Data[jsonpath])
 	}
 
 	return ""

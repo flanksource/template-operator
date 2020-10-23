@@ -6,9 +6,11 @@ require (
 	9fans.net/go v0.0.2 // indirect
 	github.com/AlekSi/pointer v1.1.0
 	github.com/flanksource/commons v1.4.0
+	github.com/ghodss/yaml v1.0.0
 	github.com/go-logr/logr v0.2.1
 	github.com/go-logr/zapr v0.2.0
 	github.com/go-test/deep v1.0.2-0.20181118220953-042da051cf31
+	github.com/hairyhenderson/gomplate/v3 v3.6.0
 	github.com/mitchellh/mapstructure v1.1.2
 	github.com/onsi/ginkgo v1.12.1
 	github.com/onsi/gomega v1.10.1
