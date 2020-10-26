@@ -1,0 +1,75 @@
+---
+apiVersion: apiextensions.k8s.io/v1beta1
+kind: CustomResourceDefinition
+metadata:
+  name: namespacerequests.acmp.corp
+spec:
+  group: acmp.corp
+  names:
+    kind: NamespaceRequest
+    listKind: NamespaceRequestList
+    plural: namespacerequests
+    singular: namespacerequest
+  scope: Cluster
+  version: v1
+  versions:
+    - name: v1
+      served: true
+      storage: true
+
+---
+apiVersion: acmp.corp/v1
+kind: NamespaceRequest
+metadata:
+  name: a
+spec:
+  team: blue-team
+  memory: 16
+---
+apiVersion: templating.flanksource.com/v1
+kind: Template
+metadata:
+  name: namespacerequest
+spec:
+  source:
+    apiVersion: acmp.corp/v1
+    kind: NamespaceRequest
+  resources:
+    - apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{.metadata.name}}"
+        annotations:
+          team: "{{.spec.team}}"
+          service: "{{.spec.service}}"
+          company: "{{.spec.company}}"
+          environment: "{{.spec.environment}}"
+
+    - apiVersion: v1
+      kind: ResourceQuota
+      metadata:
+        name: compute-resources
+        namespace: "{{.metadata.name}}"
+      spec:
+        hard:
+          requests.cpu: "1"
+          requests.memory: 10Gi
+          limits.cpu: "{{ math.Div .spec.memory 8 }}m"
+          limits.memory: "{{.spec.memory}}Gi"
+          pods: "{{ math.Mul .spec.memory 6 }}"
+          services.loadbalancers: "0"
+          services.nodeports: "0"
+
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: RoleBinding
+      metadata:
+        name: creator
+        namespace: "{{.metadata.name}}"
+      subjects:
+        - kind: Group
+          name: "{{.spec.team}}"
+          apiGroup: rbac.authorization.k8s.io
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: ClusterRole
+        name: namespace-admin

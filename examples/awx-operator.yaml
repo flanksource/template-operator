@@ -1,0 +1,294 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: awx-operator
+---
+apiVersion: awx.ansible.com/v1beta1
+kind: AWX
+metadata:
+  name: ts-test-awx2
+  namespace: awx-operator
+spec:
+  deployment_type: awx
+  external_database: true
+  tower_admin_user: admin
+  tower_admin_email: test@example.com
+  tower_admin_password: changeme
+  tower_broadcast_websocket_secret: changeme
+  tower_task_image: docker.io/ansible/awx:15.0.0
+  tower_web_image: docker.io/ansible/awx:15.0.0
+  tower_redis_image: docker.io/redis:6.0.8
+
+---
+apiVersion: templating.flanksource.com/v1
+kind: Template
+metadata:
+  name: awx
+spec:
+  source:
+    apiVersion: awx.ansible.com/v1beta1
+    kind: AWX
+  resources:
+    - apiVersion: db.flanksource.com/v1
+      kind: PostgresqlDB
+      metadata:
+        name: "{{.metadata.name}}"
+        namespace: postgres-operator
+      spec:
+        replicas: 2
+        storage:
+          storageClass: vsan
+    - apiVersion: v1
+      kind: Secret
+      metadata:
+        name: "{{.metadata.name}}-postgres-configuration"
+        namespace: "{{.metadata.namespace}}"
+      stringData:
+        host: postgres-{{.metadata.name}}.postgres-operator.svc.cluster.local
+        port: "5432"
+        database: postgres
+        username: postgres
+        password: '{{-   kget (print "secret/postgres-operator/postgres.postgres-" .metadata.name  ".credentials") "password" -}}'
+    - apiVersion: cert-manager.io/v1alpha2
+      kind: Certificate
+      metadata:
+        name: "{{.metadata.name}}-tls"
+        namespace: "{{.metadata.namespace}}"
+      spec:
+        dnsNames:
+          - '{{.metadata.name}}.{{-   kget "cm/quack/quack-config" "data.domain" -}}'
+        secretName: "{{.metadata.name}}-tls"
+        issuerRef:
+          name: ingress-ca
+          kind: ClusterIssuer
+    - apiVersion: extensions/v1beta1
+      kind: Ingress
+      annotations:
+        cert-manager.io/cluster-issuer: ingress-ca
+      metadata:
+        name: "{{.metadata.name}}-ing"
+        namespace: "{{.metadata.namespace}}"
+      spec:
+        rules:
+          - host: '{{.metadata.name}}.{{-   kget "cm/quack/quack-config" "data.domain" -}}'
+            http:
+              paths:
+                - backend:
+                    serviceName: "{{.metadata.name}}-service"
+                    servicePort: 8052
+                  path: /
+        tls:
+          - hosts:
+              - '{{.metadata.name}}.{{-   kget "cm/quack/quack-config" "data.domain" -}}'
+            secretName: "{{.metadata.name}}-tls"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  creationTimestamp: null
+  name: awx-operator
+rules:
+  - apiGroups:
+      - route.openshift.io
+    resources:
+      - routes
+    verbs:
+      - "*"
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+      - services
+      - services/finalizers
+      - endpoints
+      - persistentvolumeclaims
+      - events
+      - configmaps
+      - secrets
+      - namespaces
+    verbs:
+      - "*"
+  - apiGroups:
+      - apps
+      - extensions
+    resources:
+      - deployments
+      - daemonsets
+      - replicasets
+      - statefulsets
+      - ingresses
+    verbs:
+      - "*"
+  - apiGroups:
+      - monitoring.coreos.com
+    resources:
+      - servicemonitors
+    verbs:
+      - get
+      - create
+  - apiGroups:
+      - apps
+    resourceNames:
+      - awx-operator
+    resources:
+      - deployments/finalizers
+    verbs:
+      - update
+  - apiGroups:
+      - ""
+    resources:
+      - pods/exec
+    verbs:
+      - create
+      - get
+  - apiGroups:
+      - apps
+    resources:
+      - replicasets
+    verbs:
+      - get
+  - apiGroups:
+      - awx.ansible.com
+    resources:
+      - "*"
+    verbs:
+      - "*"
+
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: awx-operator
+subjects:
+  - kind: ServiceAccount
+    name: awx-operator
+    namespace: awx-operator
+roleRef:
+  kind: ClusterRole
+  name: awx-operator
+  apiGroup: rbac.authorization.k8s.io
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: awx-operator
+  namespace: awx-operator
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: awx-operator
+  namespace: awx-operator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      name: awx-operator
+  template:
+    metadata:
+      labels:
+        name: awx-operator
+    spec:
+      serviceAccountName: awx-operator
+      containers:
+        - name: ansible
+          command:
+            - /usr/local/bin/ao-logs
+            - /tmp/ansible-operator/runner
+            - stdout
+          image: "docker.io/flanksource/awx-operator:v0.6.4.flanksource"
+          imagePullPolicy: "Always"
+          volumeMounts:
+            - mountPath: /tmp/ansible-operator/runner
+              name: runner
+              readOnly: true
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "100m"
+              memory: "128Mi"
+        - name: operator
+          image: "docker.io/flanksource/awx-operator:v0.6.4.flanksource"
+          imagePullPolicy: "Always"
+          volumeMounts:
+            - mountPath: /tmp/ansible-operator/runner
+              name: runner
+          env:
+            # Watch all namespaces (cluster-scoped).
+            - name: WATCH_NAMESPACE
+              value: ""
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: OPERATOR_NAME
+              value: awx-operator
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "1000m"
+              memory: "2Gi"
+      volumes:
+        - name: runner
+          emptyDir: {}
+
+---
+apiVersion: apiextensions.k8s.io/v1beta1
+kind: CustomResourceDefinition
+metadata:
+  name: awxs.awx.ansible.com
+spec:
+  group: awx.ansible.com
+  names:
+    kind: AWX
+    listKind: AWXList
+    plural: awxs
+    singular: awx
+  scope: Namespaced
+  subresources:
+    status: {}
+  version: v1beta1
+  versions:
+    - name: v1beta1
+      served: true
+      storage: true
+  validation:
+    openAPIV3Schema:
+      description: Schema validation for the AWX CRD
+      type: object
+      properties:
+        spec:
+          type: object
+          properties:
+            deployment_type:
+              type: string
+              pattern: "^(tower|awx)(-)?.*$"
+            external_database:
+              type: boolean
+              description: |
+                If true you must supply a secret containing the location and credentials for
+                connecting to the external database by a user who has permission to create
+                and apply a schema.
+
+                The secret should have the name: <custom resource name>-postgres-configuration and
+                should look like:
+
+                apiVersion: v1
+                kind: Secret
+                metadata:
+                  name: <crname>-postgres-configuration
+                  namespace: <target namespace>
+                stringData:
+                  host: <external ip or url resolvable by the cluster>
+                  port: <external port, this usually defaults to 5432>
+                  database: <desired database name>
+                  username: <username to connect as>
+                  password: <password to connect with>
+                type: Opaque
+          required:
+            - deployment_type
