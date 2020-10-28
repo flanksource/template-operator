@@ -148,7 +148,12 @@ func (tm *TemplateManager) Run(ctx context.Context, template *templatev1.Templat
 				return nil
 			}
 			for _, obj := range objs {
-				obj.SetOwnerReferences([]metav1.OwnerReference{{APIVersion: source.GetAPIVersion(), Kind: source.GetKind(), Name: source.GetName(), UID: source.GetUID()}})
+				// cross-namespace owner references are not allowed, so we create an annotation for tracking purposes only
+				if source.GetNamespace() == obj.GetNamespace() {
+					obj.SetOwnerReferences([]metav1.OwnerReference{{APIVersion: source.GetAPIVersion(), Kind: source.GetKind(), Name: source.GetName(), UID: source.GetUID()}})
+				} else {
+					crossNamespaceOwner(&obj, source)
+				}
 
 				if tm.Log.V(2).Enabled() {
 					tm.Log.V(2).Info("Applying", "kind", obj.GetKind(), "namespace", obj.GetNamespace(), "name", obj.GetName(), "obj", obj)
@@ -204,8 +209,21 @@ func labelSelectorToString(l metav1.LabelSelector) (string, error) {
 	return labels.SelectorFromSet(labelMap).String(), nil
 }
 
+func crossNamespaceOwner(item *unstructured.Unstructured, owner unstructured.Unstructured) {
+	annotations := item.GetAnnotations()
+	if annotations == nil {
+		annotations = make(map[string]string)
+	}
+	annotations["template-operator-owner-ref"] = owner.GetNamespace() + "/" + owner.GetName()
+	item.SetAnnotations(annotations)
+}
+
 func markApplied(template *templatev1.Template, item *unstructured.Unstructured) *unstructured.Unstructured {
 	annotations := item.GetAnnotations()
+	if annotations == nil {
+		annotations = make(map[string]string)
+	}
+
 	annotations[mkAnnotation(template)] = "true"
 	item.SetAnnotations(annotations)
 	return item

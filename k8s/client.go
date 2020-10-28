@@ -28,6 +28,7 @@ import (
 	"github.com/mitchellh/mapstructure"
 	"gopkg.in/flanksource/yaml.v3"
 	v1 "k8s.io/api/core/v1"
+
 	"k8s.io/api/networking/v1beta1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -589,12 +590,52 @@ func (c *Client) ApplyUnstructured(namespace string, objects ...*unstructured.Un
 		} else {
 			_, err = client.Create(namespace, true, unstructuredObj)
 			if errors.IsAlreadyExists(err) {
-				_, err = client.Replace(namespace, unstructuredObj.GetName(), true, unstructuredObj)
+				existingRuntime, err := client.Get(namespace, unstructuredObj.GetName())
+				existing := existingRuntime.(*unstructured.Unstructured)
+
+				if unstructuredObj.GetKind() == "Service" {
+					// Workaround for immutable spec.clusterIP error message
+					spec := unstructuredObj.Object["spec"].(map[string]interface{})
+					spec["clusterIP"] = existing.Object["spec"].(map[string]interface{})["clusterIP"]
+				} else if unstructuredObj.GetKind() == "ServiceAccount" {
+					unstructuredObj.Object["secrets"] = existing.Object["secrets"]
+				}
+
+				unstructuredObj.SetResourceVersion(existing.GetResourceVersion())
+				unstructuredObj.SetSelfLink(existing.GetSelfLink())
+				unstructuredObj.SetUID(existing.GetUID())
+				unstructuredObj.SetCreationTimestamp(existing.GetCreationTimestamp())
+				unstructuredObj.SetGeneration(existing.GetGeneration())
+
+				updated, err := client.Replace(namespace, unstructuredObj.GetName(), true, unstructuredObj)
 				if err != nil {
 					c.Errorf("error handling: %s : %+v", client.Resource, err)
 				} else {
-					// TODO(moshloop): Diff the old and new objects and log unchanged instead of configured where necessary
-					c.Infof("%s/%s/%s configured", client.Resource, unstructuredObj.GetNamespace(), unstructuredObj.GetName())
+					updatedUnstructured := updated.(*unstructured.Unstructured)
+					if updatedUnstructured.GetResourceVersion() == unstructuredObj.GetResourceVersion() {
+						c.Debugf("%s/%s/%s (unchanged)", client.Resource, unstructuredObj.GetNamespace(), unstructuredObj.GetName())
+					} else {
+						// remove "runtime" fields from objects that woulds otherwise increase the verbosity of diffs
+						unstructured.RemoveNestedField(unstructuredObj.Object, "metadata", "managedFields")
+						unstructured.RemoveNestedField(unstructuredObj.Object, "metadata", "ownerReferences")
+						unstructured.RemoveNestedField(unstructuredObj.Object, "metadata", "generation")
+						unstructured.RemoveNestedField(unstructuredObj.Object, "metadata", "annotations", "deprecated.daemonset.template.generation")
+						unstructured.RemoveNestedField(unstructuredObj.Object, "metadata", "annotations", "template-operator-owner-ref")
+						unstructured.RemoveNestedField(updatedUnstructured.Object, "metadata", "managedFields")
+						unstructured.RemoveNestedField(updatedUnstructured.Object, "metadata", "ownerReferences")
+						unstructured.RemoveNestedField(updatedUnstructured.Object, "metadata", "generation")
+						unstructured.RemoveNestedField(updatedUnstructured.Object, "metadata", "annotations", "deprecated.daemonset.template.generation")
+						unstructured.RemoveNestedField(updatedUnstructured.Object, "metadata", "annotations", "template-operator-owner-ref")
+
+						diff := deep.Equal(unstructuredObj.Object, updatedUnstructured.Object)
+						if len(diff) > 0 {
+							c.Debugf("Diff: %s", diff)
+							c.Infof("%s/%s/%s configured %d", client.Resource, unstructuredObj.GetNamespace(), unstructuredObj.GetName(), len(diff))
+						} else {
+							c.Debugf("%s/%s/%s (unchanged)", client.Resource, unstructuredObj.GetNamespace(), unstructuredObj.GetName())
+						}
+
+					}
 				}
 			} else if err == nil {
 				c.Infof("%s/%s/%s created", client.Resource, unstructuredObj.GetNamespace(), unstructuredObj.GetName())

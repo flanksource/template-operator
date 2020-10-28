@@ -213,9 +213,6 @@ func (p *PatchApplier) JSONPath(object interface{}, jsonpath string) string {
 		p.Log.Error(err, "failed to encode json", "object", object)
 		return ""
 	}
-
-	fmt.Printf("Object:\n%s\n", string(jsonObject))
-	fmt.Printf("JSONPATH: %s\n", jsonpath)
 	value := gjson.Get(string(jsonObject), jsonpath)
 	return value.String()
 }
