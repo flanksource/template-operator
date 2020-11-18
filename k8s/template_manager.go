@@ -6,21 +6,19 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-
-	templatev1 "github.com/flanksource/template-operator/api/v1"
-	"github.com/ghodss/yaml"
-	"github.com/go-logr/logr"
-
 	"text/template"
 
+	"github.com/flanksource/kommons"
+	templatev1 "github.com/flanksource/template-operator/api/v1"
+	"github.com/go-logr/logr"
 	"github.com/hairyhenderson/gomplate/v3"
-
 	"github.com/pkg/errors"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes"
+	"sigs.k8s.io/yaml"
 )
 
 var (
@@ -29,7 +27,7 @@ var (
 )
 
 type TemplateManager struct {
-	Client *Client
+	Client *kommons.Client
 	kubernetes.Interface
 	Log          logr.Logger
 	PatchApplier *PatchApplier
@@ -43,7 +41,7 @@ type ResourcePatch struct {
 	PatchType  PatchType
 }
 
-func NewTemplateManager(c *Client, log logr.Logger) *TemplateManager {
+func NewTemplateManager(c *kommons.Client, log logr.Logger) *TemplateManager {
 	clientset, _ := c.GetClientset()
 	tm := &TemplateManager{
 		Client:       c,
@@ -143,7 +141,7 @@ func (tm *TemplateManager) Run(ctx context.Context, template *templatev1.Templat
 				return err
 			}
 
-			objs, err := GetUnstructuredObjects(data)
+			objs, err := kommons.GetUnstructuredObjects(data)
 			if err != nil {
 				return nil
 			}
