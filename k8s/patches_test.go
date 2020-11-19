@@ -1,7 +1,6 @@
 package k8s_test
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/flanksource/template-operator/k8s"
@@ -98,8 +97,8 @@ spec:
     - pod-info.1.2.3.4.nip.io
     secretName: podinfo-tls
 `)
-		fmt.Printf("Found:\n%s\n", foundYaml)
-		fmt.Printf("Expected:\n%s\n", expectedYaml)
+		// fmt.Printf("Found:\n%s\n", foundYaml)
+		// fmt.Printf("Expected:\n%s\n", expectedYaml)
 		Expect(foundYaml).To(Equal(expectedYaml))
 	})
 
@@ -160,8 +159,8 @@ spec:
     protocol: TCP
     targetPort: "9376"
 `)
-		fmt.Printf("Found:\n%s\n", foundYaml)
-		fmt.Printf("Expected:\n%s\n", expectedYaml)
+		// fmt.Printf("Found:\n%s\n", foundYaml)
+		// fmt.Printf("Expected:\n%s\n", expectedYaml)
 		Expect(foundYaml).To(Equal(expectedYaml))
 	})
 
@@ -227,8 +226,8 @@ metadata:
   namespace: example
 spec: {}
 `)
-		fmt.Printf("Found:\n%s\n", foundYaml)
-		fmt.Printf("Expected:\n%s\n", expectedYaml)
+		// fmt.Printf("Found:\n%s\n", foundYaml)
+		// fmt.Printf("Expected:\n%s\n", expectedYaml)
 		Expect(foundYaml).To(Equal(expectedYaml))
 	})
 })

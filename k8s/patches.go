@@ -52,7 +52,7 @@ func NewPatchApplier(clientset *kubernetes.Clientset, log logr.Logger) *PatchApp
 }
 
 func (p *PatchApplier) Apply(resource *unstructured.Unstructured, patchStr string, patchType PatchType) (*unstructured.Unstructured, error) {
-	fmt.Printf("Template patch:\n%s\n====\n", patchStr)
+	// fmt.Printf("Template patch:\n%s\n====\n", patchStr)
 	t, err := template.New("patch").Funcs(p.FuncMap).Parse(patchStr)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create template from patch")

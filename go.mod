@@ -4,9 +4,11 @@ go 1.13
 
 require (
 	github.com/flanksource/commons v1.4.3
-	github.com/flanksource/kommons v0.1.5
+	github.com/flanksource/kommons v0.1.6
 	github.com/go-logr/logr v0.3.0
 	github.com/go-logr/zapr v0.3.0 // indirect
+	github.com/go-openapi/jsonpointer v0.19.3
+	github.com/go-openapi/spec v0.19.3
 	github.com/hairyhenderson/gomplate/v3 v3.6.0
 	github.com/onsi/ginkgo v1.12.1
 	github.com/onsi/gomega v1.10.1
