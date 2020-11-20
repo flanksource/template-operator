@@ -17,6 +17,7 @@ require (
 	golang.org/x/tools v0.0.0-20200616195046-dc31b401abb5 // indirect
 	gopkg.in/flanksource/yaml.v3 v3.1.1
 	k8s.io/api v0.19.4
+	k8s.io/apiextensions-apiserver v0.19.4
 	k8s.io/apimachinery v0.19.4
 	k8s.io/cli-runtime v0.19.3
 	k8s.io/client-go v12.0.0+incompatible
