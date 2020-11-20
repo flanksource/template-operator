@@ -54,7 +54,7 @@ func NewSchemaManager(clientset *kubernetes.Clientset, crdClient extapi.Apiexten
 }
 
 func (m *SchemaManager) FindTypeForKey(gvk schema.GroupVersionKind, key string) (*TypedField, error) {
-	schema, found, err := m.findSchemaForKind(gvk)
+	schema, found, err := m.FindSchemaForKind(gvk)
 	if err != nil {
 		return nil, errors.Wrapf(err, "error finding kind %v", gvk)
 	}
@@ -62,13 +62,32 @@ func (m *SchemaManager) FindTypeForKey(gvk schema.GroupVersionKind, key string) 
 		return nil, errors.Errorf("kind %v not found", gvk)
 	}
 
-	fieldType, err := m.findTypeForKey(schema, key)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to find type")
+	return m.FindTypeForKeyFromSchema(schema, key)
+}
+
+func (m *SchemaManager) FindSchemaForKind(gvk schema.GroupVersionKind) (*spec.Schema, bool, error) {
+	definition := m.getDefinitionName(gvk)
+
+	if m.swagger.SwaggerProps.Definitions == nil {
+		return nil, false, fmt.Errorf("unexpected empty definitions")
+	}
+	value, found := m.swagger.SwaggerProps.Definitions[definition]
+
+	// CRD Types are present in server resources but the schema is empty
+	if !found || value.Properties == nil || len(value.Properties) == 0 {
+		return m.findSchemaForCrd(gvk)
 	}
 
-	typedField := &TypedField{Types: fieldType.Type, Format: fieldType.Format}
+	return &value, found, nil
+}
 
+func (m *SchemaManager) FindTypeForKeyFromSchema(schema *spec.Schema, key string) (*TypedField, error) {
+	fieldSchema, err := m.findTypeForKey(schema, key)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to find type for key %s", key)
+	}
+
+	typedField := &TypedField{Types: fieldSchema.Type, Format: fieldSchema.Format}
 	return typedField, nil
 }
 
@@ -76,18 +95,13 @@ func (m *SchemaManager) findTypeForKey(schema *spec.Schema, key string) (*spec.S
 	parts := strings.SplitN(key, ".", 2)
 	fieldName := parts[0]
 
-	// fmt.Printf("Schema: %v\n", schema)
-	// fmt.Printf("key: %s\n", key)
-	// fmt.Printf("type: %s\n", schema.Type)
-
-	// for k, _ := range schema.Properties {
-	// 	fmt.Printf("Property: %s\n", k)
-	// }
-	// fmt.Println("=====")
-
 	fieldSchema, found := schema.Properties[fieldName]
 	if !found {
-		return nil, errors.Errorf("failed to find property %s", fieldName)
+		if schema.Type.Contains("object") && schema.AdditionalProperties.Schema != nil {
+			fieldSchema = *schema.AdditionalProperties.Schema
+		} else {
+			return nil, errors.Errorf("failed to find property %s", fieldName)
+		}
 	}
 
 	if len(parts) == 1 {
@@ -128,22 +142,6 @@ func (m *SchemaManager) findTypeForKey(schema *spec.Schema, key string) (*spec.S
 	}
 
 	return m.findTypeForKey(&fieldSchema, nextKey)
-}
-
-func (m *SchemaManager) findSchemaForKind(gvk schema.GroupVersionKind) (*spec.Schema, bool, error) {
-	definition := m.getDefinitionName(gvk)
-
-	if m.swagger.SwaggerProps.Definitions == nil {
-		return nil, false, fmt.Errorf("unexpected empty definitions")
-	}
-	value, found := m.swagger.SwaggerProps.Definitions[definition]
-
-	// CRD Types are present in server resources but the schema is empty
-	if !found || value.Properties == nil || len(value.Properties) == 0 {
-		return m.findSchemaForCrd(gvk)
-	}
-
-	return &value, found, nil
 }
 
 func (m *SchemaManager) findSchemaForCrd(gvk schema.GroupVersionKind) (*spec.Schema, bool, error) {

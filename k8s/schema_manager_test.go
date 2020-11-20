@@ -89,6 +89,22 @@ var _ = Describe("SchemaManager", func() {
 		Expect(err).To(BeNil())
 		Expect(*kind).To(Equal(k8s.TypedField{Types: []string{"integer"}, Format: "int64"}))
 	})
+
+	It("Returns string for Secret stringData.DATABASE_PORT", func() {
+		schemaManager := newSchemaManager()
+		gvk := schema.GroupVersionKind{Group: "", Version: "v1", Kind: "Secret"}
+		kind, err := schemaManager.FindTypeForKey(gvk, "stringData.DATABASE_PORT")
+		Expect(err).To(BeNil())
+		Expect(*kind).To(Equal(k8s.TypedField{Types: []string{"string"}, Format: ""}))
+	})
+
+	It("Returns string/byte for Secret data.PASSWORD", func() {
+		schemaManager := newSchemaManager()
+		gvk := schema.GroupVersionKind{Group: "", Version: "v1", Kind: "Secret"}
+		kind, err := schemaManager.FindTypeForKey(gvk, "data.PASSWORD")
+		Expect(err).To(BeNil())
+		Expect(*kind).To(Equal(k8s.TypedField{Types: []string{"string"}, Format: "byte"}))
+	})
 })
 
 func newSchemaManager() *k8s.SchemaManager {
