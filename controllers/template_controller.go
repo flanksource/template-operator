@@ -58,7 +58,10 @@ func (r *TemplateReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		return reconcile.Result{}, err
 	}
 
-	tm := k8s.NewTemplateManager(r.Client, log)
+	tm, err := k8s.NewTemplateManager(r.Client, log)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
 	if err := tm.Run(ctx, template); err != nil {
 		return reconcile.Result{}, err
 	}

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
+	"strconv"
 	"strings"
 
 	"github.com/go-openapi/jsonpointer"
@@ -12,6 +14,7 @@ import (
 	extv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	extapi "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes"
 )
@@ -27,6 +30,8 @@ type TypedField struct {
 	Types  []string
 	Format string
 }
+
+type MapInterface map[string]interface{}
 
 func NewSchemaManager(clientset *kubernetes.Clientset, crdClient extapi.ApiextensionsV1beta1Interface) (*SchemaManager, error) {
 	bs, err := clientset.RESTClient().Get().AbsPath("openapi", "v2").DoRaw(context.TODO())
@@ -53,13 +58,127 @@ func NewSchemaManager(clientset *kubernetes.Clientset, crdClient extapi.Apiexten
 	return mgr, nil
 }
 
+func (m *SchemaManager) DuckType(gvk schema.GroupVersionKind, object *unstructured.Unstructured) error {
+	schema, found, err := m.FindSchemaForKind(gvk)
+	if err != nil {
+		return errors.Wrapf(err, "error finding kind %v", gvk)
+	}
+	if !found {
+		return errors.Errorf("kind %v does not exist", gvk)
+	}
+
+	newObject, err := m.duckType(schema, object.Object, "")
+	if err != nil {
+		return errors.Wrap(err, "failed to duck type object")
+	}
+	object.Object = newObject.(map[string]interface{})
+	return nil
+}
+
+func (m *SchemaManager) duckType(schema *spec.Schema, object interface{}, prefix string) (interface{}, error) {
+	fmt.Printf("Prefix: %s\n", prefix)
+
+	v := reflect.ValueOf(object)
+	switch v.Kind() {
+	case reflect.Slice:
+		fmt.Println("Type is slice")
+		bytes, ok := object.([]byte)
+		if ok {
+			fieldType, err := m.FindTypeForKeyFromSchema(schema, prefix)
+			if err != nil {
+				return errors.Wrapf(err, "failed to find type for key %s", prefix), nil
+			}
+			return transformBytesToType(bytes, fieldType)
+		}
+
+		array := object.([]interface{})
+		newArray := make([]interface{}, len(array))
+		for i, e := range array {
+			newPrefix := prefix + "." + strconv.Itoa(i)
+			res, err := m.duckType(schema, e, newPrefix)
+			if err != nil {
+				return nil, err
+			}
+			newArray[i] = res
+		}
+		return newArray, nil
+	case reflect.Map:
+		fmt.Println("Type is map")
+		oldMap := object.(map[string]interface{})
+		newMap := make(map[string]interface{})
+		for k, v := range oldMap {
+			newPrefix := prefix + "." + escapeDot(k)
+			if prefix == "" {
+				newPrefix = escapeDot(k)
+			}
+			res, err := m.duckType(schema, v, newPrefix)
+			if err != nil {
+				return nil, err
+			}
+			newMap[k] = res
+		}
+		return newMap, nil
+	case reflect.String:
+		fmt.Println("Type is string")
+		value := object.(string)
+		fieldType, err := m.FindTypeForKeyFromSchema(schema, prefix)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to find type for key %s", prefix)
+		}
+		newValue, err := transformStringToType(value, fieldType)
+		fmt.Printf("New value for field %s is %s\n", prefix, newValue)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to transform string to type %v", fieldType)
+		}
+		return newValue, nil
+	case reflect.Int, reflect.Int8, reflect.Int32, reflect.Int64:
+		fmt.Println("Type is int")
+		value := v.Int()
+		fieldType, err := m.FindTypeForKeyFromSchema(schema, prefix)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to find type for key %s", prefix)
+		}
+		newValue, err := transformInt64ToType(value, fieldType)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to transform string to type %v", fieldType)
+		}
+		return newValue, nil
+	case reflect.Uint, reflect.Uint8, reflect.Uint32, reflect.Uint64:
+		fmt.Println("Type is uint")
+		value := v.Uint()
+		fieldType, err := m.FindTypeForKeyFromSchema(schema, prefix)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to find type for key %s", prefix)
+		}
+		newValue, err := transformUint64ToType(value, fieldType)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to transform string to type %v", fieldType)
+		}
+		return newValue, nil
+	case reflect.Float32, reflect.Float64:
+		fmt.Println("Type is float")
+		value := int64(v.Float())
+		fieldType, err := m.FindTypeForKeyFromSchema(schema, prefix)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to find type for key %s", prefix)
+		}
+		newValue, err := transformInt64ToType(value, fieldType)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to transform string to type %v", fieldType)
+		}
+		return newValue, nil
+	default:
+		return nil, errors.Errorf("Value for field %s for type %T could not be transformed: %d", prefix, v, v.Kind())
+	}
+}
+
 func (m *SchemaManager) FindTypeForKey(gvk schema.GroupVersionKind, key string) (*TypedField, error) {
 	schema, found, err := m.FindSchemaForKind(gvk)
 	if err != nil {
 		return nil, errors.Wrapf(err, "error finding kind %v", gvk)
 	}
 	if !found {
-		return nil, errors.Errorf("kind %v not found", gvk)
+		return nil, errors.Errorf("kind %v does not exiting", gvk)
 	}
 
 	return m.FindTypeForKeyFromSchema(schema, key)
@@ -205,4 +324,157 @@ func (m *SchemaManager) getDefinitionName(gvk schema.GroupVersionKind) string {
 	}
 
 	return fmt.Sprintf("io.k8s.api.%s.%s.%s", group, version, kind)
+}
+
+func transformStringToType(value string, fieldType *TypedField) (interface{}, error) {
+	switch fieldType.Format {
+	case "int8":
+		return strconv.ParseInt(value, 10, 8)
+	case "int32":
+		return strconv.Atoi(value)
+	case "int64":
+		return strconv.ParseInt(value, 10, 64)
+	case "uint8":
+		return strconv.ParseUint(value, 10, 8)
+	case "uint32":
+		return strconv.ParseUint(value, 10, 32)
+	case "uint64":
+		return strconv.ParseUint(value, 10, 64)
+	case "double":
+		return strconv.ParseFloat(value, 64)
+	case "byte":
+		return []byte(value), nil
+	}
+
+	if contains(fieldType.Types, "string") {
+		return value, nil
+	}
+
+	if contains(fieldType.Types, "integer") {
+		return strconv.Atoi(value)
+	}
+
+	if contains(fieldType.Types, "boolean") {
+		return strconv.ParseBool(value)
+	}
+
+	return nil, errors.Errorf("could not transform string value to types %v format %s", fieldType.Types, fieldType.Format)
+}
+
+func transformFloatToType(value float64, fieldType *TypedField) (interface{}, error) {
+	switch fieldType.Format {
+	case "int8":
+		return strconv.ParseInt(strconv.FormatInt(int64(value), 10), 10, 8)
+	case "int32":
+		return strconv.ParseInt(strconv.FormatInt(int64(value), 10), 10, 32)
+	case "int64":
+		return value, nil
+	case "uint8":
+		return strconv.ParseUint(strconv.FormatInt(int64(value), 10), 10, 8)
+	case "uint32":
+		return strconv.ParseUint(strconv.FormatInt(int64(value), 10), 10, 32)
+	case "uint64":
+		return strconv.ParseUint(strconv.FormatInt(int64(value), 10), 10, 64)
+	}
+
+	if contains(fieldType.Types, "integer") {
+		return strconv.Atoi(strconv.FormatInt(int64(value), 10))
+	}
+
+	if contains(fieldType.Types, "string") {
+		return strconv.FormatFloat(value, 'f', 6, 64), nil
+	}
+
+	if contains(fieldType.Types, "boolean") {
+		return value != 0, nil
+	}
+
+	return nil, errors.Errorf("could not transform float64 value to types %v format %s", fieldType.Types, fieldType.Format)
+}
+
+func transformInt64ToType(value int64, fieldType *TypedField) (interface{}, error) {
+	switch fieldType.Format {
+	case "int8":
+		return strconv.ParseInt(strconv.FormatInt(value, 10), 10, 8)
+	case "int32":
+		return strconv.ParseInt(strconv.FormatInt(value, 10), 10, 32)
+	case "int64":
+		return value, nil
+	case "uint8":
+		return strconv.ParseUint(strconv.FormatInt(value, 10), 10, 8)
+	case "uint32":
+		return strconv.ParseUint(strconv.FormatInt(value, 10), 10, 32)
+	case "uint64":
+		return strconv.ParseUint(strconv.FormatInt(value, 10), 10, 64)
+	}
+
+	if contains(fieldType.Types, "integer") {
+		return strconv.Atoi(strconv.FormatInt(value, 10))
+	}
+
+	if contains(fieldType.Types, "string") {
+		return strconv.FormatInt(value, 10), nil
+	}
+
+	if contains(fieldType.Types, "boolean") {
+		return value != 0, nil
+	}
+
+	return nil, errors.Errorf("could not transform int64 value to types %v format %s", fieldType.Types, fieldType.Format)
+}
+
+func transformUint64ToType(value uint64, fieldType *TypedField) (interface{}, error) {
+	switch fieldType.Format {
+	case "int8":
+		return strconv.ParseInt(strconv.FormatUint(value, 10), 10, 8)
+	case "int32":
+		return strconv.ParseInt(strconv.FormatUint(value, 10), 10, 32)
+	case "int64":
+		return strconv.ParseUint(strconv.FormatUint(value, 10), 10, 64)
+	case "uint8":
+		return strconv.ParseUint(strconv.FormatUint(value, 10), 10, 8)
+	case "uint32":
+		return strconv.ParseUint(strconv.FormatUint(value, 10), 10, 32)
+	case "uint64":
+		return value, nil
+	}
+
+	if contains(fieldType.Types, "integer") {
+		return strconv.Atoi(strconv.FormatUint(value, 10))
+	}
+
+	if contains(fieldType.Types, "string") {
+		return strconv.FormatUint(value, 10), nil
+	}
+
+	if contains(fieldType.Types, "boolean") {
+		return value != 0, nil
+	}
+
+	return nil, errors.Errorf("could not transform uint64 value to types %v format %s", fieldType.Types, fieldType.Format)
+}
+
+func transformBytesToType(value []byte, fieldType *TypedField) (interface{}, error) {
+	if fieldType.Format == "byte" {
+		return value, nil
+	}
+
+	if contains(fieldType.Types, "string") {
+		return string(value), nil
+	}
+
+	return nil, errors.Errorf("could not transform []byte value to types %v format %s", fieldType.Types, fieldType.Format)
+}
+
+func contains(slice []string, value string) bool {
+	for _, k := range slice {
+		if k == value {
+			return true
+		}
+	}
+	return false
+}
+
+func escapeDot(s string) string {
+	return strings.ReplaceAll(s, ".", "_")
 }

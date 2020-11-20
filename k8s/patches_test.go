@@ -1,6 +1,7 @@
 package k8s_test
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/flanksource/template-operator/k8s"
@@ -63,9 +64,9 @@ var _ = Describe("Patches", func() {
   }
 ]
 `
-
 		log := ctrl.Log.WithName("test")
-		patchApplier := k8s.NewPatchApplier(nil, log)
+		patchApplier, err := k8s.NewPatchApplier(clientset(), crdClient(), log)
+		Expect(err).ToNot(HaveOccurred())
 		patchApplier.FuncMap["kget"] = func(path, jsonPath string) string {
 			return "1.2.3.4.nip.io"
 		}
@@ -132,18 +133,18 @@ spec:
   }
 ]
 `
-
 		log := ctrl.Log.WithName("test")
-		patchApplier := k8s.NewPatchApplier(nil, log)
+		patchApplier, err := k8s.NewPatchApplier(clientset(), crdClient(), log)
+		Expect(err).ToNot(HaveOccurred())
 		patchApplier.FuncMap["kget"] = func(path, jsonPath string) string {
 			return "1.2.3.4.nip.io"
 		}
 
 		newResource, err := patchApplier.Apply(resource, patch, k8s.PatchTypeJSON)
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 
 		specYaml, err := yaml.Marshal(newResource.Object)
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 
 		foundYaml := strings.TrimSpace(string(specYaml))
 
@@ -164,7 +165,7 @@ spec:
 		Expect(foundYaml).To(Equal(expectedYaml))
 	})
 
-	It("Merges annotations and labels", func() {
+	FIt("Merges annotations and labels", func() {
 		resource := &unstructured.Unstructured{
 			Object: map[string]interface{}{
 				"kind":       "Ingress",
@@ -198,16 +199,17 @@ metadata:
 `
 
 		log := ctrl.Log.WithName("test")
-		patchApplier := k8s.NewPatchApplier(nil, log)
+		patchApplier, err := k8s.NewPatchApplier(clientset(), crdClient(), log)
+		Expect(err).ToNot(HaveOccurred())
 		patchApplier.FuncMap["kget"] = func(path, jsonPath string) string {
 			return "1.2.3.4.nip.io"
 		}
 
 		newResource, err := patchApplier.Apply(resource, patch, k8s.PatchTypeYaml)
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 
 		specYaml, err := yaml.Marshal(newResource.Object)
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		foundYaml := strings.TrimSpace(string(specYaml))
 
 		expectedYaml := strings.TrimSpace(`
@@ -226,8 +228,8 @@ metadata:
   namespace: example
 spec: {}
 `)
-		// fmt.Printf("Found:\n%s\n", foundYaml)
-		// fmt.Printf("Expected:\n%s\n", expectedYaml)
+		fmt.Printf("Found:\n%s\n", foundYaml)
+		fmt.Printf("Expected:\n%s\n", expectedYaml)
 		Expect(foundYaml).To(Equal(expectedYaml))
 	})
 })

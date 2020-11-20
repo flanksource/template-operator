@@ -14,6 +14,7 @@ import (
 	"github.com/hairyhenderson/gomplate/v3"
 	"github.com/pkg/errors"
 	v1 "k8s.io/api/core/v1"
+	extapi "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
@@ -41,14 +42,29 @@ type ResourcePatch struct {
 	PatchType  PatchType
 }
 
-func NewTemplateManager(c *kommons.Client, log logr.Logger) *TemplateManager {
+func NewTemplateManager(c *kommons.Client, log logr.Logger) (*TemplateManager, error) {
 	clientset, _ := c.GetClientset()
+
+	restConfig, err := c.GetRESTConfig()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to get rest config")
+	}
+	crdClient, err := extapi.NewForConfig(restConfig)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create crd client")
+	}
+
+	patchApplier, err := NewPatchApplier(clientset, crdClient, log)
+	if err != nil {
+		return nil, errors.Wrap(err, "faile to create patch applier")
+	}
+
 	tm := &TemplateManager{
 		Client:       c,
 		Log:          log,
-		PatchApplier: NewPatchApplier(clientset, log),
+		PatchApplier: patchApplier,
 	}
-	return tm
+	return tm, nil
 }
 
 func (tm *TemplateManager) selectResources(ctx context.Context, selector *templatev1.ResourceSelector) ([]unstructured.Unstructured, error) {
