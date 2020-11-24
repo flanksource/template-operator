@@ -19,6 +19,4 @@ jobs:
       - name: Test
         env:
           KUBERNETES_VERSION: ${{matrix.k8s}}
-          GITHUB_TOKEN: ${{secrets.E2E_TOKEN}}
-          GITHUB_USERNAME: flankbot
         run: ./test/e2e.sh
