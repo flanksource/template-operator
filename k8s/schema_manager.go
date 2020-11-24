@@ -76,12 +76,11 @@ func (m *SchemaManager) DuckType(gvk schema.GroupVersionKind, object *unstructur
 }
 
 func (m *SchemaManager) duckType(schema *spec.Schema, object interface{}, prefix string) (interface{}, error) {
-	fmt.Printf("Prefix: %s\n", prefix)
+	// fmt.Printf("Prefix: %s\n", prefix)
 
 	v := reflect.ValueOf(object)
 	switch v.Kind() {
 	case reflect.Slice:
-		fmt.Println("Type is slice")
 		bytes, ok := object.([]byte)
 		if ok {
 			fieldType, err := m.FindTypeForKeyFromSchema(schema, prefix)
@@ -103,7 +102,6 @@ func (m *SchemaManager) duckType(schema *spec.Schema, object interface{}, prefix
 		}
 		return newArray, nil
 	case reflect.Map:
-		fmt.Println("Type is map")
 		oldMap := object.(map[string]interface{})
 		newMap := make(map[string]interface{})
 		for k, v := range oldMap {
@@ -119,20 +117,17 @@ func (m *SchemaManager) duckType(schema *spec.Schema, object interface{}, prefix
 		}
 		return newMap, nil
 	case reflect.String:
-		fmt.Println("Type is string")
 		value := object.(string)
 		fieldType, err := m.FindTypeForKeyFromSchema(schema, prefix)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to find type for key %s", prefix)
 		}
 		newValue, err := transformStringToType(value, fieldType)
-		fmt.Printf("New value for field %s is %s\n", prefix, newValue)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to transform string to type %v", fieldType)
 		}
 		return newValue, nil
 	case reflect.Int, reflect.Int8, reflect.Int32, reflect.Int64:
-		fmt.Println("Type is int")
 		value := v.Int()
 		fieldType, err := m.FindTypeForKeyFromSchema(schema, prefix)
 		if err != nil {
@@ -144,7 +139,6 @@ func (m *SchemaManager) duckType(schema *spec.Schema, object interface{}, prefix
 		}
 		return newValue, nil
 	case reflect.Uint, reflect.Uint8, reflect.Uint32, reflect.Uint64:
-		fmt.Println("Type is uint")
 		value := v.Uint()
 		fieldType, err := m.FindTypeForKeyFromSchema(schema, prefix)
 		if err != nil {
@@ -156,7 +150,6 @@ func (m *SchemaManager) duckType(schema *spec.Schema, object interface{}, prefix
 		}
 		return newValue, nil
 	case reflect.Float32, reflect.Float64:
-		fmt.Println("Type is float")
 		value := int64(v.Float())
 		fieldType, err := m.FindTypeForKeyFromSchema(schema, prefix)
 		if err != nil {
