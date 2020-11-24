@@ -8,7 +8,9 @@ export KUBECONFIG=~/.kube/config
 export DOCKER_API_VERSION=1.39
 
 if [[ "$OSTYPE" == "linux-gnu" ]]; then
-  wget -q https://github.com/flanksource/karina/releases/download/$KARINA_VERSION/karina
+  wget -q https://github.com/flanksource/karina/releases/download/$KARINA_VERSION/platform-cli
+  mv platform-cli karina
+  # wget -q https://github.com/flanksource/karina/releases/download/$KARINA_VERSION/karina
   chmod +x karina
 elif [[ "$OSTYPE" == "darwin"* ]]; then
   wget -q https://github.com/flanksource/karina/releases/download/$KARINA_VERSION/karina_osx

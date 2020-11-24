@@ -40,6 +40,10 @@ ingressCA:
   cert: .certs/ingress-ca.crt
   privateKey: .certs/ingress-ca.key
   password: foobar
+canaryChecker:
+  version: v0.11.2
+postgresOperator:
+  version: v1.3.4.flanksource.1
 test:
   exclude:
     - configmap-reloader

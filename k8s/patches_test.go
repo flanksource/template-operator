@@ -165,7 +165,7 @@ spec:
 		Expect(foundYaml).To(Equal(expectedYaml))
 	})
 
-	FIt("Merges annotations and labels", func() {
+	It("Merges annotations and labels", func() {
 		resource := &unstructured.Unstructured{
 			Object: map[string]interface{}{
 				"kind":       "Ingress",
