@@ -1,0 +1,24 @@
+on: [push]
+name: Test
+jobs:
+  test:
+    strategy:
+      matrix:
+        go-version: [1.13.x]
+        platform: [ubuntu-latest]
+        k8s:
+          - v1.16.9
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - name: Install Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: ${{ matrix.go-version }}
+      - name: Checkout code
+        uses: actions/checkout@v2
+      - name: Test
+        env:
+          KUBERNETES_VERSION: ${{matrix.k8s}}
+          GITHUB_TOKEN: ${{secrets.E2E_TOKEN}}
+          GITHUB_USERNAME: flankbot
+        run: ./test/e2e.sh

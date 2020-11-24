@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -ex
+set -e
 
 export KARINA_VERSION=v0.20.4
 export KARINA="./karina -c test/config.yaml"
@@ -46,3 +46,5 @@ kind load docker-image $IMG --name kind-kind
 make deploy
 
 go run test/e2e.go
+
+go test ./k8s
