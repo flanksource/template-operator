@@ -38,11 +38,7 @@ type TemplateReconciler struct {
 	Scheme           *runtime.Scheme
 }
 
-// +kubebuilder:rbac:groups=templating.flanksource.com,resources=templates,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=templating.flanksource.com,resources=templates/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=extensions,resources=ingresses,verbs=get;list;watch;update;patch
-// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
-// +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch
+// +kubebuilder:rbac:groups="*",resources="*",verbs="*"
 
 func (r *TemplateReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	ctx := context.Background()
