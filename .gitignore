@@ -1,3 +1,6 @@
 bin/
 cover.out
 .env
+/.bin
+/.certs
+/karina*
