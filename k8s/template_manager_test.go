@@ -43,8 +43,10 @@ metadata:
   namespace: postgres-operator
 spec:
   numberOfInstances: "{{ .spec.replicas }}"
+  clone: null
   postgresql:
     parameters: "{{ .spec.parameters | data.ToJSON }}"
+  synchronous_mode: false
 `
 			templateJSON, err := yaml.YAMLToJSON([]byte(template))
 			Expect(err).ToNot(HaveOccurred())
@@ -56,6 +58,7 @@ metadata:
   name: postgres-test1
   namespace: postgres-operator
 spec:
+  clone: null
   numberOfInstances: 2
   postgresql:
     parameters:
@@ -63,6 +66,7 @@ spec:
       max_connections: "1024"
       shared_buffers: 4759MB
       work_mem: 475MB
+  synchronous_mode: false
 `
 
 			templateManager, err := k8s.NewTemplateManager(kommonsClient(), testLog)

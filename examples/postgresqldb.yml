@@ -1,0 +1,16 @@
+apiVersion: db.flanksource.com/v1
+kind: PostgresqlDB
+metadata:
+  name: test1
+  namespace: postgres-operator
+spec:
+  replicas: 2
+  parameters:
+    max_connections: "1024"
+    shared_buffers: 4759MB
+    work_mem: 475MB
+    maintenance_work_mem: 634MB
+  storage:
+    storageClass: vsan
+  backup:
+    bucket: foo

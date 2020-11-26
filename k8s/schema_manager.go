@@ -78,6 +78,9 @@ func (m *SchemaManager) DuckType(gvk schema.GroupVersionKind, object *unstructur
 
 func (m *SchemaManager) duckType(schema *spec.Schema, object interface{}, prefix string) (interface{}, error) {
 	// fmt.Printf("Prefix: %s\n", prefix)
+	if isNil(object) {
+		return nil, nil
+	}
 
 	v := reflect.ValueOf(object)
 	switch v.Kind() {
@@ -164,6 +167,18 @@ func (m *SchemaManager) duckType(schema *spec.Schema, object interface{}, prefix
 		newValue, err := transformInt64ToType(value, fieldType)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to transform string to type %v", fieldType)
+		}
+		return newValue, nil
+	case reflect.Bool:
+		value := v.Bool()
+		fieldType, err := m.FindTypeForKeyFromSchema(schema, prefix)
+		if err != nil {
+			logger.Errorf("failed to find type for key %s: %v", prefix, err)
+			return value, nil
+		}
+		newValue, err := transformBoolToType(value, fieldType)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to transform bool to type %v", fieldType)
 		}
 		return newValue, nil
 	default:
@@ -478,6 +493,21 @@ func transformBytesToType(value []byte, fieldType *TypedField) (interface{}, err
 	return nil, errors.Errorf("could not transform []byte value to types %v format %s", fieldType.Types, fieldType.Format)
 }
 
+func transformBoolToType(value bool, fieldType *TypedField) (interface{}, error) {
+	if contains(fieldType.Types, "boolean") {
+		return value, nil
+	}
+
+	if contains(fieldType.Types, "string") {
+		if value {
+			return "true", nil
+		}
+		return "false", nil
+	}
+
+	return nil, errors.Errorf("could not transform bool value to types %v format %s", fieldType.Types, fieldType.Format)
+}
+
 func contains(slice []string, value string) bool {
 	for _, k := range slice {
 		if k == value {
@@ -489,4 +519,15 @@ func contains(slice []string, value string) bool {
 
 func escapeDot(s string) string {
 	return strings.ReplaceAll(s, ".", "_")
+}
+
+func isNil(i interface{}) bool {
+	if i == nil {
+		return true
+	}
+	switch reflect.TypeOf(i).Kind() {
+	case reflect.Ptr, reflect.Map, reflect.Array, reflect.Chan, reflect.Slice:
+		return reflect.ValueOf(i).IsNil()
+	}
+	return false
 }
