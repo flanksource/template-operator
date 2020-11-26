@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/flanksource/commons/logger"
 	"github.com/go-openapi/jsonpointer"
 	"github.com/go-openapi/spec"
 	"github.com/pkg/errors"
@@ -85,7 +86,8 @@ func (m *SchemaManager) duckType(schema *spec.Schema, object interface{}, prefix
 		if ok {
 			fieldType, err := m.FindTypeForKeyFromSchema(schema, prefix)
 			if err != nil {
-				return errors.Wrapf(err, "failed to find type for key %s", prefix), nil
+				logger.Errorf("failed to find type for key %s: %v", prefix, err)
+				return bytes, nil
 			}
 			return transformBytesToType(bytes, fieldType)
 		}
@@ -120,7 +122,8 @@ func (m *SchemaManager) duckType(schema *spec.Schema, object interface{}, prefix
 		value := object.(string)
 		fieldType, err := m.FindTypeForKeyFromSchema(schema, prefix)
 		if err != nil {
-			return nil, errors.Wrapf(err, "failed to find type for key %s", prefix)
+			logger.Errorf("failed to find type for key %s: %v", prefix, err)
+			return value, nil
 		}
 		newValue, err := transformStringToType(value, fieldType)
 		if err != nil {
@@ -131,7 +134,8 @@ func (m *SchemaManager) duckType(schema *spec.Schema, object interface{}, prefix
 		value := v.Int()
 		fieldType, err := m.FindTypeForKeyFromSchema(schema, prefix)
 		if err != nil {
-			return nil, errors.Wrapf(err, "failed to find type for key %s", prefix)
+			logger.Errorf("failed to find type for key %s: %v", prefix, err)
+			return value, nil
 		}
 		newValue, err := transformInt64ToType(value, fieldType)
 		if err != nil {
@@ -142,7 +146,8 @@ func (m *SchemaManager) duckType(schema *spec.Schema, object interface{}, prefix
 		value := v.Uint()
 		fieldType, err := m.FindTypeForKeyFromSchema(schema, prefix)
 		if err != nil {
-			return nil, errors.Wrapf(err, "failed to find type for key %s", prefix)
+			logger.Errorf("failed to find type for key %s: %v", prefix, err)
+			return value, nil
 		}
 		newValue, err := transformUint64ToType(value, fieldType)
 		if err != nil {
@@ -153,7 +158,8 @@ func (m *SchemaManager) duckType(schema *spec.Schema, object interface{}, prefix
 		value := int64(v.Float())
 		fieldType, err := m.FindTypeForKeyFromSchema(schema, prefix)
 		if err != nil {
-			return nil, errors.Wrapf(err, "failed to find type for key %s", prefix)
+			logger.Errorf("failed to find type for key %s: %v", prefix, err)
+			return value, nil
 		}
 		newValue, err := transformInt64ToType(value, fieldType)
 		if err != nil {
@@ -209,7 +215,7 @@ func (m *SchemaManager) findTypeForKey(schema *spec.Schema, key string) (*spec.S
 
 	fieldSchema, found := schema.Properties[fieldName]
 	if !found {
-		if schema.Type.Contains("object") && schema.AdditionalProperties.Schema != nil {
+		if schema.Type.Contains("object") && schema.AdditionalProperties != nil && schema.AdditionalProperties.Schema != nil {
 			fieldSchema = *schema.AdditionalProperties.Schema
 		} else {
 			return nil, errors.Errorf("failed to find property %s", fieldName)
@@ -349,6 +355,15 @@ func transformStringToType(value string, fieldType *TypedField) (interface{}, er
 
 	if contains(fieldType.Types, "boolean") {
 		return strconv.ParseBool(value)
+	}
+
+	if contains(fieldType.Types, "object") {
+		obj := map[string]interface{}{}
+		err := json.Unmarshal([]byte(value), &obj)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to transform string value to object: %v", err)
+		}
+		return obj, err
 	}
 
 	return nil, errors.Errorf("could not transform string value to types %v format %s", fieldType.Types, fieldType.Format)

@@ -111,6 +111,14 @@ var _ = Describe("SchemaManager", func() {
 			Expect(err).To(BeNil())
 			Expect(*kind).To(Equal(k8s.TypedField{Types: []string{"string"}, Format: "byte"}))
 		})
+
+		It("Returns map for PostgresqlDB spec.parameters", func() {
+			schemaManager := newSchemaManager()
+			gvk := schema.GroupVersionKind{Group: "db.flanksource.com", Version: "v1", Kind: "PostgresqlDB"}
+			kind, err := schemaManager.FindTypeForKey(gvk, "spec.parameters")
+			Expect(err).To(BeNil())
+			Expect(*kind).To(Equal(k8s.TypedField{Types: []string{"object"}, Format: ""}))
+		})
 	})
 
 	Describe("DuckType", func() {
@@ -160,7 +168,44 @@ spec:
 			yml, err := yaml.Marshal(resource.Object)
 			Expect(err).ToNot(HaveOccurred())
 
-			fmt.Printf("Expected:\n%v\n=======Actual:\n%v\n==========", expectedYaml, string(yml))
+			// fmt.Printf("Expected:\n%v\n=======Actual:\n%v\n==========", expectedYaml, string(yml))
+			Expect(strings.TrimSpace(string(yml))).To(Equal(strings.TrimSpace(expectedYaml)))
+		})
+
+		It("Encodes PostgresqlDB spec.parameters to map[string]interface{} correctly", func() {
+			value := `
+apiVersion: acid.zalan.do/v1
+kind: postgresql
+metadata:
+  name: test
+  namespace: postgres-operator
+spec:
+  replicas: 2
+  postgresql:
+    parameters: "{\"max_connections\":\"1024\",\"shared_buffers\":\"4759MB\",\"work_mem\":\"475MB\",\"maintenance_work_mem\":\"634M\"}"
+`
+			resource, err := duckTypeWithValue(value)
+			Expect(err).ToNot(HaveOccurred())
+
+			expectedYaml := `
+apiVersion: acid.zalan.do/v1
+kind: postgresql
+metadata:
+  name: test
+  namespace: postgres-operator
+spec:
+  postgresql:
+    parameters:
+      maintenance_work_mem: 634M
+      max_connections: "1024"
+      shared_buffers: 4759MB
+      work_mem: 475MB
+  replicas: 2
+`
+			yml, err := yaml.Marshal(resource.Object)
+			Expect(err).ToNot(HaveOccurred())
+
+			// fmt.Printf("Expected:\n%v\n=======Actual:\n%v\n==========", expectedYaml, string(yml))
 			Expect(strings.TrimSpace(string(yml))).To(Equal(strings.TrimSpace(expectedYaml)))
 		})
 	})

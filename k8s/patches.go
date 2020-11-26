@@ -14,7 +14,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/tidwall/gjson"
 	fyaml "gopkg.in/flanksource/yaml.v3"
-	extapi "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -41,12 +40,7 @@ type PatchApplier struct {
 	SchemaManager *SchemaManager
 }
 
-func NewPatchApplier(clientset *kubernetes.Clientset, crdClient extapi.ApiextensionsV1beta1Interface, log logr.Logger) (*PatchApplier, error) {
-	schemaManager, err := NewSchemaManager(clientset, crdClient)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to create schema manager")
-	}
-
+func NewPatchApplier(clientset *kubernetes.Clientset, schemaManager *SchemaManager, log logr.Logger) (*PatchApplier, error) {
 	p := &PatchApplier{
 		Clientset:     clientset,
 		Log:           log,
