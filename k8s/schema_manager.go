@@ -283,6 +283,10 @@ func (m *SchemaManager) findSchemaForCrd(gvk schema.GroupVersionKind) (*spec.Sch
 }
 
 func (m *SchemaManager) parseCrdSchema(crd extv1beta1.CustomResourceDefinition) (*spec.Schema, error) {
+	if crd.Spec.Validation == nil || crd.Spec.Validation.OpenAPIV3Schema == nil {
+		return nil, errors.Errorf("crd %s is missing openapi schema validation", crd.Name)
+	}
+
 	bytes, err := json.Marshal(crd.Spec.Validation.OpenAPIV3Schema)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to encode crd schema to json")
