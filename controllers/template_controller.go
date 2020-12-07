@@ -19,30 +19,26 @@ package controllers
 import (
 	"context"
 
+	"github.com/flanksource/kommons"
+	templatev1 "github.com/flanksource/template-operator/api/v1"
+	"github.com/flanksource/template-operator/k8s"
 	"github.com/go-logr/logr"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-
-	templatev1 "github.com/flanksource/template-operator/api/v1"
-	"github.com/flanksource/template-operator/k8s"
 )
 
 // TemplateReconciler reconciles a Template object
 type TemplateReconciler struct {
 	ControllerClient client.Client
-	Client           *k8s.Client
+	Client           *kommons.Client
 	Log              logr.Logger
 	Scheme           *runtime.Scheme
 }
 
-// +kubebuilder:rbac:groups=templating.flanksource.com,resources=templates,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=templating.flanksource.com,resources=templates/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=extensions,resources=ingresses,verbs=get;list;watch;update;patch
-// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
-// +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch
+// +kubebuilder:rbac:groups="*",resources="*",verbs="*"
 
 func (r *TemplateReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	ctx := context.Background()
@@ -58,7 +54,10 @@ func (r *TemplateReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		return reconcile.Result{}, err
 	}
 
-	tm := k8s.NewTemplateManager(r.Client, log)
+	tm, err := k8s.NewTemplateManager(r.Client, log)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
 	if err := tm.Run(ctx, template); err != nil {
 		return reconcile.Result{}, err
 	}

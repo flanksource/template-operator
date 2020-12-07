@@ -21,16 +21,15 @@ import (
 	"os"
 	"time"
 
+	"github.com/flanksource/commons/logger"
+	"github.com/flanksource/kommons"
+	templatingflanksourcecomv1 "github.com/flanksource/template-operator/api/v1"
+	"github.com/flanksource/template-operator/controllers"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
-
-	"github.com/flanksource/commons/logger"
-	templatingflanksourcecomv1 "github.com/flanksource/template-operator/api/v1"
-	"github.com/flanksource/template-operator/controllers"
-	"github.com/flanksource/template-operator/k8s"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -74,7 +73,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	client := k8s.NewClient(mgr.GetConfig(), logger.NewLogger("client", "k8"))
+	client := kommons.NewClient(mgr.GetConfig(), logger.StandardLogger())
+
 	if err = (&controllers.TemplateReconciler{
 		Client: client,
 		Log:    ctrl.Log.WithName("controllers").WithName("Template"),

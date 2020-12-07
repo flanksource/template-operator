@@ -1,7 +1,6 @@
 package k8s_test
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/flanksource/template-operator/k8s"
@@ -64,9 +63,9 @@ var _ = Describe("Patches", func() {
   }
 ]
 `
-
 		log := ctrl.Log.WithName("test")
-		patchApplier := k8s.NewPatchApplier(nil, log)
+		patchApplier, err := k8s.NewPatchApplier(clientset(), newSchemaManager(), log)
+		Expect(err).ToNot(HaveOccurred())
 		patchApplier.FuncMap["kget"] = func(path, jsonPath string) string {
 			return "1.2.3.4.nip.io"
 		}
@@ -98,8 +97,8 @@ spec:
     - pod-info.1.2.3.4.nip.io
     secretName: podinfo-tls
 `)
-		fmt.Printf("Found:\n%s\n", foundYaml)
-		fmt.Printf("Expected:\n%s\n", expectedYaml)
+		// fmt.Printf("Found:\n%s\n", foundYaml)
+		// fmt.Printf("Expected:\n%s\n", expectedYaml)
 		Expect(foundYaml).To(Equal(expectedYaml))
 	})
 
@@ -133,18 +132,18 @@ spec:
   }
 ]
 `
-
 		log := ctrl.Log.WithName("test")
-		patchApplier := k8s.NewPatchApplier(nil, log)
+		patchApplier, err := k8s.NewPatchApplier(clientset(), newSchemaManager(), log)
+		Expect(err).ToNot(HaveOccurred())
 		patchApplier.FuncMap["kget"] = func(path, jsonPath string) string {
 			return "1.2.3.4.nip.io"
 		}
 
 		newResource, err := patchApplier.Apply(resource, patch, k8s.PatchTypeJSON)
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 
 		specYaml, err := yaml.Marshal(newResource.Object)
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 
 		foundYaml := strings.TrimSpace(string(specYaml))
 
@@ -160,8 +159,8 @@ spec:
     protocol: TCP
     targetPort: "9376"
 `)
-		fmt.Printf("Found:\n%s\n", foundYaml)
-		fmt.Printf("Expected:\n%s\n", expectedYaml)
+		// fmt.Printf("Found:\n%s\n", foundYaml)
+		// fmt.Printf("Expected:\n%s\n", expectedYaml)
 		Expect(foundYaml).To(Equal(expectedYaml))
 	})
 
@@ -199,16 +198,17 @@ metadata:
 `
 
 		log := ctrl.Log.WithName("test")
-		patchApplier := k8s.NewPatchApplier(nil, log)
+		patchApplier, err := k8s.NewPatchApplier(clientset(), newSchemaManager(), log)
+		Expect(err).ToNot(HaveOccurred())
 		patchApplier.FuncMap["kget"] = func(path, jsonPath string) string {
 			return "1.2.3.4.nip.io"
 		}
 
 		newResource, err := patchApplier.Apply(resource, patch, k8s.PatchTypeYaml)
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 
 		specYaml, err := yaml.Marshal(newResource.Object)
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		foundYaml := strings.TrimSpace(string(specYaml))
 
 		expectedYaml := strings.TrimSpace(`
@@ -227,8 +227,64 @@ metadata:
   namespace: example
 spec: {}
 `)
-		fmt.Printf("Found:\n%s\n", foundYaml)
-		fmt.Printf("Expected:\n%s\n", expectedYaml)
+		// fmt.Printf("Found:\n%s\n", foundYaml)
+		// fmt.Printf("Expected:\n%s\n", expectedYaml)
+		Expect(foundYaml).To(Equal(expectedYaml))
+	})
+
+	It("Encodes as json", func() {
+		resource := &unstructured.Unstructured{
+			Object: map[string]interface{}{
+				"kind":       "postgresql",
+				"apiVersion": "acid.zalan.do/v1",
+				"metadata": map[string]interface{}{
+					"name":      "test",
+					"namespace": "example",
+				},
+				"spec": map[string]interface{}{
+					"replicas": 1,
+				},
+			},
+		}
+
+		patch := `
+apiVersion: acid.zalan.do/v1
+kind: postgresql
+spec:
+  postgresql:
+    parameters: "{{ kget "postgresqldb/postgres-operator/test" "spec.parameters" }}"
+`
+
+		log := ctrl.Log.WithName("test")
+		patchApplier, err := k8s.NewPatchApplier(clientset(), newSchemaManager(), log)
+		Expect(err).ToNot(HaveOccurred())
+		patchApplier.FuncMap["kget"] = func(path, jsonPath string) string {
+			str := "{\"max_connections\":\"1024\",\"shared_buffers\":\"4759MB\",\"work_mem\":\"475MB\",\"maintenance_work_mem\":\"634M\"}"
+			return strings.ReplaceAll(str, "\"", "\\\"")
+		}
+
+		newResource, err := patchApplier.Apply(resource, patch, k8s.PatchTypeYaml)
+		Expect(err).ToNot(HaveOccurred())
+
+		specYaml, err := yaml.Marshal(newResource.Object)
+		Expect(err).ToNot(HaveOccurred())
+		foundYaml := strings.TrimSpace(string(specYaml))
+
+		expectedYaml := strings.TrimSpace(`
+apiVersion: acid.zalan.do/v1
+kind: postgresql
+metadata:
+  name: test
+  namespace: example
+spec:
+  postgresql:
+    parameters:
+      maintenance_work_mem: 634M
+      max_connections: "1024"
+      shared_buffers: 4759MB
+      work_mem: 475MB
+  replicas: 1
+`)
 		Expect(foundYaml).To(Equal(expectedYaml))
 	})
 })

@@ -16,6 +16,7 @@ import (
 	fyaml "gopkg.in/flanksource/yaml.v3"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/cli-runtime/pkg/kustomize"
 	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/kustomize/pkg/fs"
@@ -33,26 +34,28 @@ var (
 )
 
 type PatchApplier struct {
-	Clientset *kubernetes.Clientset
-	Log       logr.Logger
-	FuncMap   template.FuncMap
+	Clientset     *kubernetes.Clientset
+	Log           logr.Logger
+	FuncMap       template.FuncMap
+	SchemaManager *SchemaManager
 }
 
-func NewPatchApplier(clientset *kubernetes.Clientset, log logr.Logger) *PatchApplier {
+func NewPatchApplier(clientset *kubernetes.Clientset, schemaManager *SchemaManager, log logr.Logger) (*PatchApplier, error) {
 	p := &PatchApplier{
-		Clientset: clientset,
-		Log:       log,
+		Clientset:     clientset,
+		Log:           log,
+		SchemaManager: schemaManager,
 	}
 
 	p.FuncMap = template.FuncMap{
 		"kget":     p.KGet,
 		"jsonPath": p.JSONPath,
 	}
-	return p
+	return p, nil
 }
 
 func (p *PatchApplier) Apply(resource *unstructured.Unstructured, patchStr string, patchType PatchType) (*unstructured.Unstructured, error) {
-	fmt.Printf("Template patch:\n%s\n====\n", patchStr)
+	// fmt.Printf("Template patch:\n%s\n====\n", patchStr)
 	t, err := template.New("patch").Funcs(p.FuncMap).Parse(patchStr)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create template from patch")
@@ -87,6 +90,18 @@ func (p *PatchApplier) Apply(resource *unstructured.Unstructured, patchStr strin
 
 	kustomizationFile := &types.Kustomization{Resources: []string{name}}
 
+	version := resource.GetAPIVersion()
+	parts := strings.Split(version, "/")
+	var apiVersion, apiGroup string
+	if len(parts) == 1 {
+		apiGroup = ""
+		apiVersion = parts[0]
+	} else {
+		apiGroup = parts[0]
+		apiVersion = parts[1]
+	}
+	groupVersionKind := schema.GroupVersionKind{Group: apiGroup, Version: apiVersion, Kind: resource.GetKind()}
+
 	if patchType == PatchTypeYaml {
 		finalPatch := map[string]interface{}{}
 		templateBytes := tpl.Bytes()
@@ -99,6 +114,10 @@ func (p *PatchApplier) Apply(resource *unstructured.Unstructured, patchStr strin
 		}
 		if patchObject.GetNamespace() == "" {
 			patchObject.SetNamespace(resource.GetNamespace())
+		}
+
+		if err := p.SchemaManager.DuckType(groupVersionKind, patchObject); err != nil {
+			return nil, errors.Wrap(err, "failed to duck type object")
 		}
 
 		// writes strategic merge patches to files in the temp file system
@@ -118,16 +137,6 @@ func (p *PatchApplier) Apply(resource *unstructured.Unstructured, patchStr strin
 		memFS.WriteFile(filepath.Join(fakeDir, name), templateBytes) // nolint: errcheck
 		// writes json patches to files in the temp file system
 
-		version := resource.GetAPIVersion()
-		parts := strings.Split(version, "/")
-		var apiVersion, apiGroup string
-		if len(parts) == 1 {
-			apiGroup = ""
-			apiVersion = parts[0]
-		} else {
-			apiGroup = parts[0]
-			apiVersion = parts[1]
-		}
 		kustomizationFile.PatchesJson6902 = []patch.Json6902{
 			{
 				Target: &patch.Target{

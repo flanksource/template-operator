@@ -6,21 +6,21 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-
-	templatev1 "github.com/flanksource/template-operator/api/v1"
-	"github.com/ghodss/yaml"
-	"github.com/go-logr/logr"
-
 	"text/template"
 
+	"github.com/flanksource/kommons"
+	templatev1 "github.com/flanksource/template-operator/api/v1"
+	"github.com/go-logr/logr"
 	"github.com/hairyhenderson/gomplate/v3"
-
 	"github.com/pkg/errors"
 	v1 "k8s.io/api/core/v1"
+	extapi "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes"
+	"sigs.k8s.io/yaml"
 )
 
 var (
@@ -29,10 +29,11 @@ var (
 )
 
 type TemplateManager struct {
-	Client *Client
+	Client *kommons.Client
 	kubernetes.Interface
-	Log          logr.Logger
-	PatchApplier *PatchApplier
+	Log           logr.Logger
+	PatchApplier  *PatchApplier
+	SchemaManager *SchemaManager
 }
 
 type ResourcePatch struct {
@@ -43,14 +44,35 @@ type ResourcePatch struct {
 	PatchType  PatchType
 }
 
-func NewTemplateManager(c *Client, log logr.Logger) *TemplateManager {
+func NewTemplateManager(c *kommons.Client, log logr.Logger) (*TemplateManager, error) {
 	clientset, _ := c.GetClientset()
-	tm := &TemplateManager{
-		Client:       c,
-		Log:          log,
-		PatchApplier: NewPatchApplier(clientset, log),
+
+	restConfig, err := c.GetRESTConfig()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to get rest config")
 	}
-	return tm
+	crdClient, err := extapi.NewForConfig(restConfig)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create crd client")
+	}
+
+	schemaManager, err := NewSchemaManager(clientset, crdClient)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create schema manager")
+	}
+
+	patchApplier, err := NewPatchApplier(clientset, schemaManager, log)
+	if err != nil {
+		return nil, errors.Wrap(err, "faile to create patch applier")
+	}
+
+	tm := &TemplateManager{
+		Client:        c,
+		Log:           log,
+		PatchApplier:  patchApplier,
+		SchemaManager: schemaManager,
+	}
+	return tm, nil
 }
 
 func (tm *TemplateManager) selectResources(ctx context.Context, selector *templatev1.ResourceSelector) ([]unstructured.Unstructured, error) {
@@ -143,7 +165,7 @@ func (tm *TemplateManager) Run(ctx context.Context, template *templatev1.Templat
 				return err
 			}
 
-			objs, err := GetUnstructuredObjects(data)
+			objs, err := kommons.GetUnstructuredObjects(data)
 			if err != nil {
 				return nil
 			}
@@ -189,16 +211,42 @@ func (tm *TemplateManager) Template(data []byte, vars interface{}) ([]byte, erro
 	}
 
 	rawVars, _ := yaml.Marshal(vars)
-	unstructured := make(map[string]interface{})
-	if err := yaml.Unmarshal(rawVars, &unstructured); err != nil {
+	source := make(map[string]interface{})
+	if err := yaml.Unmarshal(rawVars, &source); err != nil {
 		return nil, err
 	}
 
 	var buf bytes.Buffer
-	if err := tpl.Execute(&buf, unstructured); err != nil {
+	if err := tpl.Execute(&buf, source); err != nil {
 		return nil, fmt.Errorf("error executing template %s: %v", strings.Split(string(data), "\n")[0], err)
 	}
-	return buf.Bytes(), nil
+
+	return tm.duckTypeTemplateResult(buf.Bytes())
+}
+
+func (tm *TemplateManager) duckTypeTemplateResult(objYaml []byte) ([]byte, error) {
+	obj := &unstructured.Unstructured{}
+	if err := yaml.Unmarshal(objYaml, &obj.Object); err != nil {
+		return nil, fmt.Errorf("error parsing template result: %v", err)
+	}
+
+	version := obj.GetAPIVersion()
+	parts := strings.Split(version, "/")
+	var apiVersion, apiGroup string
+	if len(parts) == 1 {
+		apiGroup = ""
+		apiVersion = parts[0]
+	} else {
+		apiGroup = parts[0]
+		apiVersion = parts[1]
+	}
+	groupVersionKind := schema.GroupVersionKind{Group: apiGroup, Version: apiVersion, Kind: obj.GetKind()}
+
+	if err := tm.SchemaManager.DuckType(groupVersionKind, obj); err != nil {
+		return nil, errors.Wrap(err, "failed to ducktype object")
+	}
+
+	return yaml.Marshal(&obj.Object)
 }
 
 func labelSelectorToString(l metav1.LabelSelector) (string, error) {
