@@ -117,7 +117,7 @@ func (p *PatchApplier) Apply(resource *unstructured.Unstructured, patchStr strin
 		}
 
 		if err := p.SchemaManager.DuckType(groupVersionKind, patchObject); err != nil {
-			return nil, errors.Wrap(err, "failed to duck type object")
+			p.Log.Error(err, "failed to duck type object")
 		}
 
 		// writes strategic merge patches to files in the temp file system
