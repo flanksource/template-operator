@@ -433,6 +433,8 @@ func transformInt64ToType(value int64, fieldType *TypedField) (interface{}, erro
 		return strconv.ParseUint(strconv.FormatInt(value, 10), 10, 32)
 	case "uint64":
 		return strconv.ParseUint(strconv.FormatInt(value, 10), 10, 64)
+	case "int-or-string":
+		return value, nil
 	}
 
 	if contains(fieldType.Types, "integer") {
@@ -463,6 +465,8 @@ func transformUint64ToType(value uint64, fieldType *TypedField) (interface{}, er
 	case "uint32":
 		return strconv.ParseUint(strconv.FormatUint(value, 10), 10, 32)
 	case "uint64":
+		return value, nil
+	case "int-or-string":
 		return value, nil
 	}
 

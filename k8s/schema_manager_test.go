@@ -208,6 +208,43 @@ spec:
 			// fmt.Printf("Expected:\n%v\n=======Actual:\n%v\n==========", expectedYaml, string(yml))
 			Expect(strings.TrimSpace(string(yml))).To(Equal(strings.TrimSpace(expectedYaml)))
 		})
+
+		It("Encodes Service spec.ports.0.targetPort to int correctly", func() {
+			value := `
+apiVersion: v1
+kind: Service
+metadata:
+  name: test
+  namespace: postgres-operator
+spec:
+  ports:
+  - name: http
+    port: 80
+    targetPort: 2080
+    protocol: TCP
+`
+			resource, err := duckTypeWithValue(value)
+			Expect(err).ToNot(HaveOccurred())
+
+			expectedYaml := `
+apiVersion: v1
+kind: Service
+metadata:
+  name: test
+  namespace: postgres-operator
+spec:
+  ports:
+  - name: http
+    port: 80
+    protocol: TCP
+    targetPort: 2080
+`
+			yml, err := yaml.Marshal(resource.Object)
+			Expect(err).ToNot(HaveOccurred())
+
+			fmt.Printf("Expected:\n%v\n=======Actual:\n%v\n==========", expectedYaml, string(yml))
+			Expect(strings.TrimSpace(string(yml))).To(Equal(strings.TrimSpace(expectedYaml)))
+		})
 	})
 })
 
