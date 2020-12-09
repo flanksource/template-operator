@@ -285,12 +285,26 @@ func (m *SchemaManager) findSchemaForCrd(gvk schema.GroupVersionKind) (*spec.Sch
 	}
 
 	for _, crd := range crds.Items {
-		if crd.Spec.Group == gvk.Group && crd.Spec.Names.Kind == gvk.Kind && crd.Spec.Version == gvk.Version {
-			schema, err := m.parseCrdSchema(crd)
-			if err != nil {
-				return nil, false, errors.Wrap(err, "failed to parse crd schema")
+		if crd.Spec.Group == gvk.Group && crd.Spec.Names.Kind == gvk.Kind {
+			for _, version := range crd.Spec.Versions {
+				if version.Name == gvk.Version {
+					schema, err := m.parseCrdSchemaVersion(version)
+					if err != nil {
+						return nil, false, errors.Wrap(err, "failed to parse crd version schema")
+					} else if schema != nil {
+						return schema, true, nil
+					}
+				}
 			}
-			return schema, true, nil
+
+			if crd.Spec.Version == gvk.Version {
+				schema, err := m.parseCrdSchema(crd)
+				if err != nil {
+					return nil, false, errors.Wrap(err, "failed to parse crd schema")
+				} else if schema != nil {
+					return schema, true, nil
+				}
+			}
 		}
 	}
 
@@ -299,10 +313,28 @@ func (m *SchemaManager) findSchemaForCrd(gvk schema.GroupVersionKind) (*spec.Sch
 
 func (m *SchemaManager) parseCrdSchema(crd extv1beta1.CustomResourceDefinition) (*spec.Schema, error) {
 	if crd.Spec.Validation == nil || crd.Spec.Validation.OpenAPIV3Schema == nil {
-		return nil, errors.Errorf("crd %s is missing openapi schema validation", crd.Name)
+		return nil, nil
 	}
 
 	bytes, err := json.Marshal(crd.Spec.Validation.OpenAPIV3Schema)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to encode crd schema to json")
+	}
+
+	schema := &spec.Schema{}
+	if err := json.Unmarshal(bytes, schema); err != nil {
+		return nil, errors.Wrap(err, "failed to decode json into spec.Schema")
+	}
+
+	return schema, nil
+}
+
+func (m *SchemaManager) parseCrdSchemaVersion(crd extv1beta1.CustomResourceDefinitionVersion) (*spec.Schema, error) {
+	if crd.Schema == nil || crd.Schema.OpenAPIV3Schema == nil {
+		return nil, nil
+	}
+
+	bytes, err := json.Marshal(crd.Schema.OpenAPIV3Schema)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to encode crd schema to json")
 	}
