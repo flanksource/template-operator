@@ -257,6 +257,9 @@ func (m *SchemaManager) findTypeForKey(schema *spec.Schema, key string) (*spec.S
 		pointer = fieldSchema.Items.Schema.Ref.GetPointer()
 		parts := strings.SplitN(nextKey, ".", 2)
 		if len(parts) == 1 {
+			if fieldSchema.Items != nil && fieldSchema.Items.Schema != nil {
+				return fieldSchema.Items.Schema, nil
+			}
 			return nil, errors.Errorf("found array index as last element of key")
 		}
 		if fieldSchema.Items.Schema != nil {
@@ -371,6 +374,8 @@ func (m *SchemaManager) getDefinitionName(gvk schema.GroupVersionKind) string {
 	kind := gvk.Kind
 	if group == "" {
 		group = "core"
+	} else if group == "rbac.authorization.k8s.io" {
+		group = "rbac"
 	}
 
 	return fmt.Sprintf("io.k8s.api.%s.%s.%s", group, version, kind)
