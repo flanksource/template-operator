@@ -26,7 +26,7 @@ var _ = Describe("SchemaManager", func() {
 	Describe("FindTypeForKey", func() {
 		It("Returns int32 for Deployment. pec.replicas", func() {
 			schemaManager := newSchemaManager()
-			gvk := schema.GroupVersionKind{Group: "apps", Version: "v1beta1", Kind: "Deployment"}
+			gvk := schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "Deployment"}
 			kind, err := schemaManager.FindTypeForKey(gvk, "spec.replicas")
 			Expect(err).To(BeNil())
 			Expect(*kind).To(Equal(k8s.TypedField{Types: []string{"integer"}, Format: "int32"}))
@@ -145,7 +145,7 @@ stringData:
 
 		It("Encodes Deployment replicas to int correctly", func() {
 			value := `
-apiVersion: apps/v1beta1
+apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: foo
@@ -157,7 +157,7 @@ spec:
 			Expect(err).ToNot(HaveOccurred())
 
 			expectedYaml := `
-apiVersion: apps/v1beta1
+apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: foo
@@ -242,7 +242,46 @@ spec:
 			yml, err := yaml.Marshal(resource.Object)
 			Expect(err).ToNot(HaveOccurred())
 
-			fmt.Printf("Expected:\n%v\n=======Actual:\n%v\n==========", expectedYaml, string(yml))
+			// fmt.Printf("Expected:\n%v\n=======Actual:\n%v\n==========", expectedYaml, string(yml))
+			Expect(strings.TrimSpace(string(yml))).To(Equal(strings.TrimSpace(expectedYaml)))
+		})
+
+		It("Encodes Certificates correctly", func() {
+			value := `
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: test
+  namespace: foo
+spec:
+  dnsNames:
+  - foo.bar.com
+  issuerRef:
+    kind: ClusterIssuer
+    name: ingress-ca
+  secretName: foo-tls
+`
+			resource, err := duckTypeWithValue(value)
+			Expect(err).ToNot(HaveOccurred())
+
+			expectedYaml := `
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: test
+  namespace: foo
+spec:
+  dnsNames:
+  - foo.bar.com
+  issuerRef:
+    kind: ClusterIssuer
+    name: ingress-ca
+  secretName: foo-tls
+`
+			yml, err := yaml.Marshal(resource.Object)
+			Expect(err).ToNot(HaveOccurred())
+
+			// fmt.Printf("Expected:\n%v\n=======Actual:\n%v\n==========", expectedYaml, string(yml))
 			Expect(strings.TrimSpace(string(yml))).To(Equal(strings.TrimSpace(expectedYaml)))
 		})
 	})
