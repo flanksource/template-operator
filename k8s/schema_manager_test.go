@@ -284,6 +284,96 @@ spec:
 			// fmt.Printf("Expected:\n%v\n=======Actual:\n%v\n==========", expectedYaml, string(yml))
 			Expect(strings.TrimSpace(string(yml))).To(Equal(strings.TrimSpace(expectedYaml)))
 		})
+
+		It("Encodes Deployment args correctly", func() {
+			value := `
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: foo
+  namespace: bar
+spec:
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.14.2
+          args:
+            - foo
+            - 3
+`
+			resource, err := duckTypeWithValue(value)
+			Expect(err).ToNot(HaveOccurred())
+
+			expectedYaml := `
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: foo
+  namespace: bar
+spec:
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - args:
+        - foo
+        - "3"
+        image: nginx:1.14.2
+        name: nginx
+`
+			yml, err := yaml.Marshal(resource.Object)
+			Expect(err).ToNot(HaveOccurred())
+
+			// fmt.Printf("Expected:\n%v\n=======Actual:\n%v\n==========", expectedYaml, string(yml))
+			Expect(strings.TrimSpace(string(yml))).To(Equal(strings.TrimSpace(expectedYaml)))
+		})
+
+		It("Encodes RoleBinding correctly", func() {
+			value := `
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: creator
+  namespace: foo
+subjects:
+  - kind: Group
+    name: test1
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: namespace-admin
+`
+			resource, err := duckTypeWithValue(value)
+			Expect(err).ToNot(HaveOccurred())
+
+			expectedYaml := `
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: creator
+  namespace: foo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: namespace-admin
+subjects:
+- apiGroup: rbac.authorization.k8s.io
+  kind: Group
+  name: test1
+`
+			yml, err := yaml.Marshal(resource.Object)
+			Expect(err).ToNot(HaveOccurred())
+
+			// fmt.Printf("Expected:\n%v\n=======Actual:\n%v\n==========", expectedYaml, string(yml))
+			Expect(strings.TrimSpace(string(yml))).To(Equal(strings.TrimSpace(expectedYaml)))
+		})
 	})
 })
 

@@ -15,8 +15,8 @@ import (
 	templatev1 "github.com/flanksource/template-operator/api/v1"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
+	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
-	extv1beta1 "k8s.io/api/extensions/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
@@ -48,7 +48,7 @@ var (
 
 type Test func(context.Context, *console.TestResults) error
 type DeferFunc func()
-type deploymentFn func(*extv1beta1.Deployment) bool
+type deploymentFn func(*appsv1.Deployment) bool
 
 func main() {
 	var kubeconfig *string
@@ -146,14 +146,14 @@ func TestDeploymentReplicas(ctx context.Context, test *console.TestResults) erro
 		return err
 	}
 
-	deployment := &extv1beta1.Deployment{
-		TypeMeta: metav1.TypeMeta{APIVersion: "extensions/v1beta1", Kind: "Deployment"},
+	deployment := &appsv1.Deployment{
+		TypeMeta: metav1.TypeMeta{APIVersion: "apps/v1", Kind: "Deployment"},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "nginx-deployment",
 			Namespace: ns,
 			Labels:    map[string]string{"app": "nginx"},
 		},
-		Spec: extv1beta1.DeploymentSpec{
+		Spec: appsv1.DeploymentSpec{
 			Selector: &metav1.LabelSelector{
 				MatchLabels: map[string]string{"app": "nginx"},
 			},
@@ -174,14 +174,14 @@ func TestDeploymentReplicas(ctx context.Context, test *console.TestResults) erro
 		},
 	}
 
-	deployment, err := k8s.ExtensionsV1beta1().Deployments(ns).Create(ctx, deployment, metav1.CreateOptions{})
+	deployment, err := k8s.AppsV1().Deployments(ns).Create(ctx, deployment, metav1.CreateOptions{})
 	if err != nil {
 		test.Failf("TestDeploymentReplicas", "failed to create deployment")
 		return err
 	}
 
 	patchTemplate := `
-apiVersion: extensions/v1beta1
+apiVersion: apps/v1
 kind: Deployment
 spec:
   replicas: "{{ kget "cm/%s/nginx-config" "data.replicas" }}"
@@ -193,7 +193,7 @@ spec:
 		ObjectMeta: metav1.ObjectMeta{Name: ns},
 		Spec: templatev1.TemplateSpec{
 			Source: templatev1.ResourceSelector{
-				APIVersion: "extensions/v1beta1",
+				APIVersion: "apps/v1",
 				Kind:       "Deployment",
 				LabelSelector: metav1.LabelSelector{
 					MatchLabels: map[string]string{"app": "nginx"},
@@ -212,7 +212,7 @@ spec:
 		}
 	}()
 
-	_, err = waitForDeploymentChanged(ctx, deployment, func(d *extv1beta1.Deployment) bool {
+	_, err = waitForDeploymentChanged(ctx, deployment, func(d *appsv1.Deployment) bool {
 		return d.Spec.Replicas != nil && *d.Spec.Replicas == 3
 	})
 	if err != nil {
@@ -225,9 +225,9 @@ spec:
 	return nil
 }
 
-func waitForDeploymentChanged(ctx context.Context, deployment *extv1beta1.Deployment, fn deploymentFn) (*extv1beta1.Deployment, error) {
+func waitForDeploymentChanged(ctx context.Context, deployment *appsv1.Deployment, fn deploymentFn) (*appsv1.Deployment, error) {
 	for {
-		d, err := k8s.ExtensionsV1beta1().Deployments(deployment.Namespace).Get(ctx, deployment.Name, metav1.GetOptions{})
+		d, err := k8s.AppsV1().Deployments(deployment.Namespace).Get(ctx, deployment.Name, metav1.GetOptions{})
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to get deployment %s", deployment.Name)
 		}
