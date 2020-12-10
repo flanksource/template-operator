@@ -187,6 +187,23 @@ func (tm *TemplateManager) Run(ctx context.Context, template *templatev1.Templat
 				}
 			}
 		}
+
+		for _, namespace := range template.Spec.CopyToNamespaces.Namespaces {
+			newResource := source.DeepCopy()
+			newResource.SetNamespace(namespace)
+
+			crossNamespaceOwner(newResource, source)
+
+			if tm.Log.V(2).Enabled() {
+				tm.Log.V(2).Info("Applying", "kind", newResource.GetKind(), "namespace", newResource.GetNamespace(), "name", newResource.GetName(), "obj", newResource)
+			} else {
+				tm.Log.Info("Applying", "kind", newResource.GetKind(), "namespace", newResource.GetNamespace(), "name", newResource.GetName())
+			}
+
+			if err := tm.Client.ApplyUnstructured(newResource.GetNamespace(), newResource); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }

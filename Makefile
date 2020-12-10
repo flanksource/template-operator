@@ -47,6 +47,12 @@ deploy: manifests
 manifests: controller-gen
 	$(CONTROLLER_GEN) $(CRD_OPTIONS) rbac:roleName=manager-role webhook paths="./..." output:crd:artifacts:config=config/crd/bases
 
+static: manifests
+	mkdir -p config/deploy
+	cd config/manager && kustomize edit set image controller=${IMG}
+	kustomize build config/crd > config/deploy/crd.yml
+	kustomize build config/default > config/deploy/operator.yml
+
 # Run go fmt against code
 fmt:
 	go fmt ./...

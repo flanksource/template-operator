@@ -43,6 +43,9 @@ type TemplateSpec struct {
 
 	JsonPatches []JsonPatch `json:"jsonPatches,omitempty"`
 
+	// Copy this object to other namespaces
+	CopyToNamespaces *CopyToNamespaces `json:"copyToNamespaces,omitempty"`
+
 	// Onceoff will not apply templating more than once (usually at admission stage)
 	Onceoff bool `json:"onceoff,omitempty"`
 }
@@ -68,6 +71,10 @@ type ObjectSelector struct {
 type JsonPatch struct {
 	Object metav1.TypeMeta `json:"object,omitempty"`
 	Patch  string          `json:"patch,omitempty"`
+}
+
+type CopyToNamespaces struct {
+	Namespaces []string `json:"namespaces,omitempty"`
 }
 
 // +kubebuilder:object:root=true
