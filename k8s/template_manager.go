@@ -68,6 +68,7 @@ func NewTemplateManager(c *kommons.Client, log logr.Logger) (*TemplateManager, e
 
 	tm := &TemplateManager{
 		Client:        c,
+		Interface:     clientset,
 		Log:           log,
 		PatchApplier:  patchApplier,
 		SchemaManager: schemaManager,
@@ -85,7 +86,6 @@ func (tm *TemplateManager) selectResources(ctx context.Context, selector *templa
 	if len(selector.NamespaceSelector.MatchExpressions) == 0 && len(selector.NamespaceSelector.MatchLabels) == 0 {
 		namespaceNames = []string{v1.NamespaceAll}
 	} else {
-
 		labelSelector, err := labelSelectorToString(selector.NamespaceSelector)
 		if err != nil {
 			return nil, err
@@ -183,6 +183,25 @@ func (tm *TemplateManager) Run(ctx context.Context, template *templatev1.Templat
 					tm.Log.Info("Applying", "kind", obj.GetKind(), "namespace", obj.GetNamespace(), "name", obj.GetName())
 				}
 				if err := tm.Client.ApplyUnstructured(obj.GetNamespace(), &obj); err != nil {
+					return err
+				}
+			}
+		}
+
+		if template.Spec.CopyToNamespaces != nil {
+			for _, namespace := range template.Spec.CopyToNamespaces.Namespaces {
+				newResource := source.DeepCopy()
+				newResource.SetNamespace(namespace)
+
+				crossNamespaceOwner(newResource, source)
+
+				if tm.Log.V(2).Enabled() {
+					tm.Log.V(2).Info("Applying", "kind", newResource.GetKind(), "namespace", newResource.GetNamespace(), "name", newResource.GetName(), "obj", newResource)
+				} else {
+					tm.Log.Info("Applying", "kind", newResource.GetKind(), "namespace", newResource.GetNamespace(), "name", newResource.GetName())
+				}
+
+				if err := tm.Client.ApplyUnstructured(newResource.GetNamespace(), newResource); err != nil {
 					return err
 				}
 			}

@@ -36,6 +36,14 @@ spec:
           spec:
             description: TemplateSpec defines the desired state of Template
             properties:
+              copyToNamespaces:
+                description: Copy this object to other namespaces
+                properties:
+                  namespaces:
+                    items:
+                      type: string
+                    type: array
+                type: object
               jsonPatches:
                 items:
                   properties:
