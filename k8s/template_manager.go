@@ -262,7 +262,7 @@ func (tm *TemplateManager) duckTypeTemplateResult(objYaml []byte) ([]byte, error
 	groupVersionKind := schema.GroupVersionKind{Group: apiGroup, Version: apiVersion, Kind: obj.GetKind()}
 
 	if err := tm.SchemaManager.DuckType(groupVersionKind, obj); err != nil {
-		return nil, errors.Wrap(err, "failed to ducktype object")
+		tm.Log.Error(err, "failed to ducktype object")
 	}
 
 	return yaml.Marshal(&obj.Object)
