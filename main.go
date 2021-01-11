@@ -76,8 +76,6 @@ func main() {
 	flag.Parse()
 	setupLogger(opts)
 
-	setupLog.Info("Settings:", "sync-period", syncPeriod.Seconds())
-
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:             scheme,
 		MetricsBindAddress: metricsAddr,
