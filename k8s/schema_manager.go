@@ -34,6 +34,26 @@ type TypedField struct {
 
 type MapInterface map[string]interface{}
 
+func NewSchemaManagerWithCache(clientset *kubernetes.Clientset, crdClient extapi.ApiextensionsV1beta1Interface, cache *SchemaCache) (*SchemaManager, error) {
+	s, err := cache.FetchSchema()
+	if err != nil {
+		return nil, err
+	}
+
+	serverResources, err := cache.FetchResources()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to list server resources")
+	}
+
+	mgr := &SchemaManager{
+		swagger:         s,
+		serverResources: serverResources,
+		clientset:       clientset,
+		crdClient:       crdClient,
+	}
+	return mgr, nil
+}
+
 func NewSchemaManager(clientset *kubernetes.Clientset, crdClient extapi.ApiextensionsV1beta1Interface) (*SchemaManager, error) {
 	bs, err := clientset.RESTClient().Get().AbsPath("openapi", "v2").DoRaw(context.TODO())
 	if err != nil {

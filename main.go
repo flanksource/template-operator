@@ -25,6 +25,10 @@ import (
 	"github.com/flanksource/kommons"
 	templatingflanksourcecomv1 "github.com/flanksource/template-operator/api/v1"
 	"github.com/flanksource/template-operator/controllers"
+	"github.com/flanksource/template-operator/k8s"
+	zaplogfmt "github.com/sykesm/zap-logfmt"
+	uzap "go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
@@ -45,11 +49,23 @@ func init() {
 	// +kubebuilder:scaffold:scheme
 }
 
+func setupLogger(opts zap.Options) {
+	configLog := uzap.NewProductionEncoderConfig()
+	configLog.EncodeTime = func(ts time.Time, encoder zapcore.PrimitiveArrayEncoder) {
+		encoder.AppendString(ts.UTC().Format(time.RFC3339Nano))
+	}
+	logfmtEncoder := zaplogfmt.NewEncoder(configLog)
+
+	logger := zap.New(zap.UseFlagOptions(&opts), zap.Encoder(logfmtEncoder))
+	ctrl.SetLogger(logger)
+}
+
 func main() {
 	var metricsAddr string
 	var enableLeaderElection bool
-	var syncPeriod time.Duration
-	flag.DurationVar(&syncPeriod, "sync-period", 5*time.Minute, "The time duration to run a full reconcole")
+	var syncPeriod, expire time.Duration
+	flag.DurationVar(&syncPeriod, "sync-period", 5*time.Minute, "The time duration to run a full reconcile")
+	flag.DurationVar(&expire, "expire", 15*time.Minute, "The time duration to expire API resources cache")
 	flag.StringVar(&metricsAddr, "metrics-addr", ":8080", "The address the metric endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "enable-leader-election", false,
 		"Enable leader election for controller manager. "+
@@ -58,7 +74,9 @@ func main() {
 	opts := zap.Options{}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
-	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+	setupLogger(opts)
+
+	setupLog.Info("Settings:", "sync-period", syncPeriod.Seconds())
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:             scheme,
@@ -74,9 +92,16 @@ func main() {
 	}
 
 	client := kommons.NewClient(mgr.GetConfig(), logger.StandardLogger())
+	clientset, err := client.GetClientset()
+	if err != nil {
+		setupLog.Error(err, "failed to get clientset")
+		os.Exit(1)
+	}
+	schemaCache := k8s.NewSchemaCache(clientset, expire, ctrl.Log.WithName("schema-cache"))
 
 	if err = (&controllers.TemplateReconciler{
 		Client: client,
+		Cache:  schemaCache,
 		Log:    ctrl.Log.WithName("controllers").WithName("Template"),
 		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {

@@ -14,6 +14,7 @@ require (
 	github.com/onsi/gomega v1.10.1
 	github.com/pkg/errors v0.9.1
 	github.com/sirupsen/logrus v1.7.0
+	github.com/sykesm/zap-logfmt v0.0.4 // indirect
 	github.com/tidwall/gjson v1.6.1
 	golang.org/x/tools v0.0.0-20200616195046-dc31b401abb5 // indirect
 	gopkg.in/flanksource/yaml.v3 v3.1.1

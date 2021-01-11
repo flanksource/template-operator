@@ -44,7 +44,7 @@ type ResourcePatch struct {
 	PatchType  PatchType
 }
 
-func NewTemplateManager(c *kommons.Client, log logr.Logger) (*TemplateManager, error) {
+func NewTemplateManager(c *kommons.Client, log logr.Logger, cache *SchemaCache) (*TemplateManager, error) {
 	clientset, _ := c.GetClientset()
 
 	restConfig, err := c.GetRESTConfig()
@@ -56,7 +56,7 @@ func NewTemplateManager(c *kommons.Client, log logr.Logger) (*TemplateManager, e
 		return nil, errors.Wrap(err, "failed to create crd client")
 	}
 
-	schemaManager, err := NewSchemaManager(clientset, crdClient)
+	schemaManager, err := NewSchemaManagerWithCache(clientset, crdClient, cache)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create schema manager")
 	}

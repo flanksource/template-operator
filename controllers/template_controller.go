@@ -36,6 +36,7 @@ type TemplateReconciler struct {
 	Client           *kommons.Client
 	Log              logr.Logger
 	Scheme           *runtime.Scheme
+	Cache            *k8s.SchemaCache
 }
 
 // +kubebuilder:rbac:groups="*",resources="*",verbs="*"
@@ -54,14 +55,13 @@ func (r *TemplateReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		return reconcile.Result{}, err
 	}
 
-	tm, err := k8s.NewTemplateManager(r.Client, log)
+	tm, err := k8s.NewTemplateManager(r.Client, log, r.Cache)
 	if err != nil {
 		return reconcile.Result{}, err
 	}
 	if err := tm.Run(ctx, template); err != nil {
 		return reconcile.Result{}, err
 	}
-
 	return ctrl.Result{}, nil
 }
 
