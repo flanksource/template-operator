@@ -39,7 +39,13 @@ $KARINA deploy calico
 kubectl -n kube-system set env daemonset/calico-node FELIX_IGNORELOOSERPF=true
 
 $KARINA deploy base
+$KARINA deploy minio
 $KARINA deploy stubs
+$KARINA deploy postgres-operator
+
+kubectl apply -f examples/postgres-operator.yml
+kubectl apply -f examples/namespacerequest.yml
+kubectl apply -f test/fixtures/awx-operator.yml
 
 export IMG=flanksource/template-operator:v1
 make docker-build

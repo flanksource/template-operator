@@ -1,0 +1,18 @@
+apiVersion: templating.flanksource.com/v1
+kind: Template
+metadata:
+  name: copy-secret-e2e
+spec:
+  source:
+    apiVersion: v1
+    kind: Secret
+    namespaceSelector:
+      matchLabels:
+        e2e-namespace-role: "copy-to-namespace-source"
+    labelSelector:
+      matchLabels:
+        e2e-test: "copy-to-namespace"
+  copyToNamespaces:
+    namespaces:
+      - template-operator-e2e-dest-1
+      - template-operator-e2e-dest-2

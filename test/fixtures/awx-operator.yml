@@ -1,0 +1,732 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: awx-operator
+  labels:
+    openpolicyagent.org/webhook: ignore
+
+---
+apiVersion: templating.flanksource.com/v1
+kind: Template
+metadata:
+  name: awx
+spec:
+  source:
+    apiVersion: awx.flanksource.com/v1beta1
+    kind: AWX
+  resources:
+    - apiVersion: db.flanksource.com/v1
+      kind: PostgresqlDB
+      metadata:
+        name: "{{.metadata.name}}"
+        namespace: postgres-operator
+      spec:
+        replicas: "{{ .spec.replicas | default \"2\" }}"
+        storage:
+          storageClass: local-path
+        backup:
+          bucket: "{{ .spec.backup.bucket }}"
+        cpu: "{{ .spec.cpu | default \"0.1\" }}"
+        memory: "{{ .spec.memory | default \"1Gi\" }}"
+        parameters: "{{ .spec.parameters | default (coll.Dict) | data.ToJSON }}"
+    - apiVersion: v1
+      kind: Secret
+      metadata:
+        name: "{{.metadata.name}}-secrets"
+        namespace: "{{.metadata.namespace}}"
+      stringData:
+        DATABASE_HOST: postgres-{{.metadata.name}}.postgres-operator.svc.cluster.local
+        DATABASE_PORT: "5432"
+        DATABASE_NAME: postgres
+        DATABASE_USER: postgres
+        DATABASE_PASSWORD: '{{- kget (print "secret/postgres-operator/postgres.postgres-" .metadata.name  ".credentials") "password" -}}'
+        AWX_ADMIN_USER: admin
+        AWX_ADMIN_PASSWORD: '{{- kget (print "secret/postgres-operator/postgres.postgres-" .metadata.name  ".credentials") "password" -}}'
+        SECRET_KEY: '{{- kget (print "secret/postgres-operator/postgres.postgres-" .metadata.name  ".credentials") "password" -}}'
+    - apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        annotations:
+        labels:
+          app: awx-{{.metadata.name}}
+        name: "{{ .metadata.name }}"
+        namespace: awx-operator
+      spec:
+        replicas: 1
+        revisionHistoryLimit: 10
+        selector:
+          matchLabels:
+            app: awx-{{.metadata.name}}
+        strategy:
+          rollingUpdate:
+            maxSurge: 25%
+            maxUnavailable: 25%
+          type: RollingUpdate
+        template:
+          metadata:
+            labels:
+              app: awx-{{.metadata.name}}
+          spec:
+            initContainers:
+              - envFrom:
+                  - secretRef:
+                      name: "{{.metadata.name}}-secrets"
+                image: docker.io/ansible/awx:15.0.0
+                name: init
+                resources:
+                  requests:
+                    cpu: 500m
+                    memory: 1Gi
+                args:
+                  - /usr/bin/init.sh
+                volumeMounts:
+                  - mountPath: /etc/tower/settings.py
+                    name: settings
+                    readOnly: true
+                    subPath: settings.py
+                  - mountPath: /usr/bin/init.sh
+                    name: init-awx
+                    readOnly: true
+                    subPath: init.sh
+            containers:
+              - image: docker.io/redis:6.0.8
+                name: redis
+                args:
+                  - redis-server
+                  - /etc/redis.conf
+                resources: {}
+                terminationMessagePath: /dev/termination-log
+                terminationMessagePolicy: File
+                volumeMounts:
+                  - mountPath: /etc/redis.conf
+                    name: redis-config
+                    readOnly: true
+                    subPath: redis.conf
+                  - mountPath: /var/run/redis
+                    name: redis-socket
+              - image: docker.io/ansible/awx:15.0.0
+                name: web
+                resources:
+                  requests:
+                    cpu: "1"
+                    memory: 2Gi
+                envFrom:
+                  - secretRef:
+                      name: "{{.metadata.name}}-secrets"
+                volumeMounts:
+                  - mountPath: /etc/tower/settings.py
+                    name: settings
+                    readOnly: true
+                    subPath: settings.py
+                  - mountPath: /usr/bin/launch_awx_web.sh
+                    subPath: launch_awx_web.sh
+                    name: launch-awx-web
+                    readOnly: true
+                  - mountPath: /supervisor.conf
+                    name: supervisor-web-config
+                    readOnly: true
+                    subPath: supervisor.conf
+                  - name: awx-nginx-conf
+                    mountPath: /etc/nginx/nginx.conf
+                    readOnly: true
+                    subPath: nginx.conf
+                  - mountPath: /var/run/redis
+                    name: redis-socket
+                  - mountPath: /var/run/supervisor
+                    name: supervisor-socket
+              - image: docker.io/ansible/awx:15.0.0
+                imagePullPolicy: IfNotPresent
+                name: task
+                args:
+                  - /usr/bin/launch_awx_task.sh
+                env:
+                  - name: MY_POD_UID
+                    valueFrom:
+                      fieldRef:
+                        apiVersion: v1
+                        fieldPath: metadata.uid
+                  - name: MY_POD_IP
+                    valueFrom:
+                      fieldRef:
+                        apiVersion: v1
+                        fieldPath: status.podIP
+                envFrom:
+                  - secretRef:
+                      name: "{{.metadata.name}}-secrets"
+                resources:
+                  requests:
+                    cpu: 500m
+                    memory: 1Gi
+                volumeMounts:
+                  - mountPath: /etc/tower/settings.py
+                    name: settings
+                    readOnly: true
+                    subPath: settings.py
+                  - mountPath: /usr/bin/launch_awx_task.sh
+                    name: launch-awx-task
+                    readOnly: true
+                    subPath: launch_awx_task.sh
+                  - mountPath: /supervisor_task.conf
+                    name: supervisor-task-config
+                    readOnly: true
+                    subPath: supervisor_task.conf
+                  - mountPath: /var/run/redis
+                    name: redis-socket
+                  - mountPath: /var/run/supervisor
+                    name: supervisor-socket
+                  - mountPath: /var/run/awx-rsyslog
+                    name: rsyslog-socket
+                  - mountPath: /var/lib/awx/rsyslog
+                    name: rsyslog-dir
+            dnsPolicy: ClusterFirst
+            restartPolicy: Always
+            schedulerName: default-scheduler
+            securityContext: {}
+            terminationGracePeriodSeconds: 30
+            volumes:
+              - configMap:
+                  defaultMode: 420
+                  items:
+                    - key: settings
+                      path: settings.py
+                  name: awx-configmap
+                name: settings
+              - configMap:
+                  defaultMode: 420
+                  items:
+                    - key: nginx_conf
+                      path: nginx.conf
+                  name: awx-configmap
+                name: awx-nginx-conf
+              - configMap:
+                  defaultMode: 420
+                  items:
+                    - key: redis_conf
+                      path: redis.conf
+                  name: awx-configmap
+                name: redis-config
+              - configMap:
+                  defaultMode: 493
+                  items:
+                    - key: launch-awx-web
+                      path: launch_awx_web.sh
+                  name: launch-awx
+                name: launch-awx-web
+              - configMap:
+                  defaultMode: 493
+                  items:
+                    - key: init
+                      path: init.sh
+                  name: launch-awx
+                name: init-awx
+              - configMap:
+                  defaultMode: 420
+                  items:
+                    - key: supervisor-web-config
+                      path: supervisor.conf
+                  name: awx-supervisor-config
+                name: supervisor-web-config
+              - configMap:
+                  defaultMode: 493
+                  items:
+                    - key: launch-awx-task
+                      path: launch_awx_task.sh
+                  name: launch-awx
+                name: launch-awx-task
+              - configMap:
+                  defaultMode: 420
+                  items:
+                    - key: supervisor-task-config
+                      path: supervisor_task.conf
+                  name: awx-supervisor-config
+                name: supervisor-task-config
+              - emptyDir: {}
+                name: redis-socket
+              - emptyDir: {}
+                name: supervisor-socket
+              - emptyDir: {}
+                name: rsyslog-socket
+              - emptyDir: {}
+                name: rsyslog-dir
+    - apiVersion: v1
+      kind: Service
+      metadata:
+        labels:
+          app: awx-{{.metadata.name}}
+        name: awx-{{.metadata.name}}
+        namespace: "{{.metadata.namespace}}"
+      spec:
+        ports:
+          - name: http
+            port: 80
+            protocol: TCP
+            targetPort: 8052
+        selector:
+          app: awx-{{.metadata.name}}
+    - apiVersion: cert-manager.io/v1alpha2
+      kind: Certificate
+      metadata:
+        name: "{{.metadata.name}}-tls"
+        namespace: "{{.metadata.namespace}}"
+      spec:
+        dnsNames:
+          - '{{.metadata.name}}.{{-   kget "cm/quack/quack-config" "data.domain" -}}'
+        secretName: "{{.metadata.name}}-tls"
+        issuerRef:
+          name: ingress-ca
+          kind: ClusterIssuer
+    - apiVersion: extensions/v1beta1
+      kind: Ingress
+      annotations:
+        cert-manager.io/cluster-issuer: ingress-ca
+      metadata:
+        name: "{{.metadata.name}}-ing"
+        namespace: "{{.metadata.namespace}}"
+      spec:
+        rules:
+          - host: '{{.metadata.name}}.{{-   kget "cm/quack/quack-config" "data.domain" -}}'
+            http:
+              paths:
+                - backend:
+                    serviceName: awx-{{.metadata.name}}
+                    servicePort: 8052
+                  path: /
+        tls:
+          - hosts:
+              - '{{.metadata.name}}.{{-   kget "cm/quack/quack-config" "data.domain" -}}'
+            secretName: "{{.metadata.name}}-tls"
+---
+apiVersion: apiextensions.k8s.io/v1beta1
+kind: CustomResourceDefinition
+metadata:
+  name: awxs.awx.flanksource.com
+spec:
+  group: awx.flanksource.com
+  names:
+    kind: AWX
+    listKind: AWXList
+    plural: awxs
+    singular: awx
+  scope: Namespaced
+  subresources:
+    status: {}
+  version: v1beta1
+  versions:
+    - name: v1beta1
+      served: true
+      storage: true
+  validation:
+    openAPIV3Schema:
+      description: Schema validation for the AWX CRD
+      type: object
+      properties:
+        spec:
+          type: object
+---
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: awx-supervisor-config
+  namespace: awx-operator
+data:
+  supervisor-task-config: |
+    [supervisord]
+    nodaemon = True
+    umask = 022
+    logfile = /dev/stdout
+    logfile_maxbytes = 0
+
+    [program:dispatcher]
+    command = awx-manage run_dispatcher
+    directory = /var/lib/awx
+    environment = LANGUAGE="en_US.UTF-8",LANG="en_US.UTF-8",LC_ALL="en_US.UTF-8",LC_CTYPE="en_US.UTF-8"
+    autostart = true
+    autorestart = true
+    stopwaitsecs = 5
+    stdout_logfile=/dev/stdout
+    stdout_logfile_maxbytes=0
+    stderr_logfile=/dev/stderr
+    stderr_logfile_maxbytes=0
+
+    [program:callback-receiver]
+    command = awx-manage run_callback_receiver
+    directory = /var/lib/awx
+    autostart = true
+    autorestart = true
+    stopwaitsecs = 5
+    stdout_logfile=/dev/stdout
+    stdout_logfile_maxbytes=0
+    stderr_logfile=/dev/stderr
+    stderr_logfile_maxbytes=0
+
+    [group:tower-processes]
+    programs=dispatcher,callback-receiver
+    priority=5
+
+    # TODO: Exit Handler
+
+    [eventlistener:awx-config-watcher]
+    command=/usr/bin/config-watcher
+    stderr_logfile=/dev/stdout
+    stderr_logfile_maxbytes=0
+    stdout_logfile=/dev/stdout
+    stdout_logfile_maxbytes=0
+    events=TICK_60
+    priority=0
+
+    [unix_http_server]
+    file=/tmp/supervisor.sock
+
+    [supervisorctl]
+    serverurl=unix:///tmp/supervisor.sock ; use a unix:// URL  for a unix socket
+
+    [rpcinterface:supervisor]
+    supervisor.rpcinterface_factory = supervisor.rpcinterface:make_main_rpcinterface
+  supervisor-web-config: |
+    [supervisord]
+    nodaemon = True
+    umask = 022
+    logfile = /dev/stdout
+    logfile_maxbytes = 0
+
+    [program:nginx]
+    command = nginx -g "daemon off;"
+    autostart = true
+    autorestart = true
+    stopwaitsecs = 5
+    stdout_logfile=/dev/stdout
+    stdout_logfile_maxbytes=0
+    stderr_logfile=/dev/stderr
+    stderr_logfile_maxbytes=0
+
+    [program:uwsgi]
+    command = bash -c '/var/lib/awx/venv/awx/bin/uwsgi --socket 127.0.0.1:8050 --module=awx.wsgi:application --vacuum --processes=5 --harakiri=120 --no-orphans --master --max-requests=1000 --master-fifo=/var/lib/awx/awxfifo --lazy-apps -b 32768'
+    directory = /var/lib/awx
+    autostart = true
+    autorestart = true
+    stopwaitsecs = 15
+    stopsignal = INT
+    stdout_logfile=/dev/stdout
+    stdout_logfile_maxbytes=0
+    stderr_logfile=/dev/stderr
+    stderr_logfile_maxbytes=0
+
+    [program:daphne]
+    command = bash -c '/var/lib/awx/venv/awx/bin/daphne -b 127.0.0.1 -p 8051 awx.asgi:channel_layer'
+    directory = /var/lib/awx
+    autostart = true
+    autorestart = true
+    stopwaitsecs = 5
+    stdout_logfile=/dev/stdout
+    stdout_logfile_maxbytes=0
+    stderr_logfile=/dev/stderr
+    stderr_logfile_maxbytes=0
+
+    [program:wsbroadcast]
+    command = awx-manage run_wsbroadcast
+    directory = /var/lib/awx
+    autostart = true
+    autorestart = true
+    stopwaitsecs = 5
+    stdout_logfile=/dev/stdout
+    stdout_logfile_maxbytes=0
+    stderr_logfile=/dev/stderr
+    stderr_logfile_maxbytes=0
+
+    [program:awx-rsyslogd]
+    command = rsyslogd -n -i /var/run/awx-rsyslog/rsyslog.pid -f /var/lib/awx/rsyslog/rsyslog.conf
+    autostart = true
+    autorestart = true
+    stopwaitsecs = 5
+    stopsignal=TERM
+    stopasgroup=true
+    killasgroup=true
+    redirect_stderr=true
+    stdout_logfile=/dev/stderr
+    stdout_logfile_maxbytes=0
+
+    [group:tower-processes]
+    programs=nginx,uwsgi,daphne,wsbroadcast,awx-rsyslogd
+    priority=5
+
+    # TODO: Exit Handler
+
+    [eventlistener:awx-config-watcher]
+    command=/usr/bin/config-watcher
+    stderr_logfile=/dev/stdout
+    stderr_logfile_maxbytes=0
+    stdout_logfile=/dev/stdout
+    stdout_logfile_maxbytes=0
+    events=TICK_60
+    priority=0
+
+    [unix_http_server]
+    file=/var/run/supervisor/supervisor.web.sock
+
+    [supervisorctl]
+    serverurl=unix:///var/run/supervisor/supervisor.web.sock ; use a unix:// URL  for a unix socket
+
+    [rpcinterface:supervisor]
+    supervisor.rpcinterface_factory = supervisor.rpcinterface:make_main_rpcinterface
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: launch-awx
+  namespace: awx-operator
+data:
+  init: |
+    #!/usr/bin/env bash
+    set -e
+    if [ `id -u` -ge 500 ]; then
+        echo "awx:x:`id -u`:`id -g`:,,,:/var/lib/awx:/bin/bash" >> /tmp/passwd
+        cat /tmp/passwd > /etc/passwd
+        rm /tmp/passwd
+    fi
+
+    echo "Waiting for $DATABASE_HOST:$DATABASE_PORT to come up"
+    ANSIBLE_REMOTE_TEMP=/tmp ANSIBLE_LOCAL_TEMP=/tmp ansible -i "127.0.0.1," -c local -v -m wait_for -a "host=$DATABASE_HOST port=$DATABASE_PORT" all
+    #echo "Waiting for redis to come up"
+    #ANSIBLE_REMOTE_TEMP=/tmp ANSIBLE_LOCAL_TEMP=/tmp ansible -i "127.0.0.1," -c local -v -m wait_for -a "path=/var/run/redis/redis.sock" all
+    echo "Running migrations"
+
+    awx-manage migrate --noinput
+
+    count=$(  echo "from django.contrib.auth.models import User; print(User.objects.filter(is_superuser=True).count()) " | awx-manage shell )
+
+    echo "Found $count superusers"
+    if [[ "$count" == "0" ]]; then
+      echo "Creating  superuser: $AWX_ADMIN_USER"
+      echo "from django.contrib.auth.models import User; User.objects.create_superuser('$AWX_ADMIN_USER', 'root@localhost', '$AWX_ADMIN_PASSWORD')" | awx-manage shell
+    fi
+    echo 'from django.conf import settings; x = settings.AWX_TASK_ENV; x["HOME"] = "/var/lib/awx"; settings.AWX_TASK_ENV = x' | awx-manage shell
+    echo Init Completed
+  launch-awx-task: |
+    #!/usr/bin/env bash
+
+    if [ `id -u` -ge 500 ]; then
+        echo "awx:x:`id -u`:`id -g`:,,,:/var/lib/awx:/bin/bash" >> /tmp/passwd
+        cat /tmp/passwd > /etc/passwd
+        rm /tmp/passwd
+    fi
+
+    awx-manage provision_instance --hostname=$(hostname)
+    awx-manage register_queue --queuename=tower --instance_percent=100
+
+    supervisord -c /supervisor_task.conf
+  launch-awx-web: |
+    #!/usr/bin/env bash
+
+    if [ `id -u` -ge 500 ]; then
+        echo "awx:x:`id -u`:`id -g`:,,,:/var/lib/awx:/bin/bash" >> /tmp/passwd
+        cat /tmp/passwd > /etc/passwd
+        rm /tmp/passwd
+    fi
+
+    awx-manage collectstatic --noinput --clear
+    supervisord -c /supervisor.conf
+
+---
+apiVersion: v1
+data:
+  nginx_conf: |
+    worker_processes  1;
+    pid        /tmp/nginx.pid;
+
+    events {
+        worker_connections  1024;
+    }
+
+    http {
+        include       /etc/nginx/mime.types;
+        default_type  application/octet-stream;
+        server_tokens off;
+
+        log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
+                          '$status $body_bytes_sent "$http_referer" '
+                          '"$http_user_agent" "$http_x_forwarded_for"';
+
+        access_log /dev/stdout main;
+
+        map $http_upgrade $connection_upgrade {
+            default upgrade;
+            ''      close;
+        }
+
+        sendfile        on;
+        #tcp_nopush     on;
+        #gzip  on;
+
+        upstream uwsgi {
+            server 127.0.0.1:8050;
+        }
+
+        upstream daphne {
+            server 127.0.0.1:8051;
+        }
+
+        server {
+            listen 8052 default_server;
+
+            # If you have a domain name, this is where to add it
+            server_name _;
+            keepalive_timeout 65;
+
+            # HSTS (ngx_http_headers_module is required) (15768000 seconds = 6 months)
+            add_header Strict-Transport-Security max-age=15768000;
+            add_header Content-Security-Policy "default-src 'self'; connect-src 'self' ws: wss:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' *.pendo.io; img-src 'self' *.pendo.io data:; report-uri /csp-violation/";
+            add_header X-Content-Security-Policy "default-src 'self'; connect-src 'self' ws: wss:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' *.pendo.io; img-src 'self' *.pendo.io data:; report-uri /csp-violation/";
+
+            # Protect against click-jacking https://www.owasp.org/index.php/Testing_for_Clickjacking_(OTG-CLIENT-009)
+            add_header X-Frame-Options "DENY";
+
+            location /nginx_status {
+                stub_status on;
+                access_log off;
+                allow 127.0.0.1;
+                deny all;
+            }
+
+            location /static/ {
+                alias /var/lib/awx/public/static/;
+            }
+
+            location /favicon.ico {
+                alias /var/lib/awx/public/static/favicon.ico;
+            }
+
+            location /websocket {
+                # Pass request to the upstream alias
+                proxy_pass http://daphne;
+                # Require http version 1.1 to allow for upgrade requests
+                proxy_http_version 1.1;
+                # We want proxy_buffering off for proxying to websockets.
+                proxy_buffering off;
+                # http://en.wikipedia.org/wiki/X-Forwarded-For
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                # enable this if you use HTTPS:
+                proxy_set_header X-Forwarded-Proto https;
+                # pass the Host: header from the client for the sake of redirects
+                proxy_set_header Host $http_host;
+                # We've set the Host header, so we don't need Nginx to muddle
+                # about with redirects
+                proxy_redirect off;
+                # Depending on the request value, set the Upgrade and
+                # connection headers
+                proxy_set_header Upgrade $http_upgrade;
+                proxy_set_header Connection $connection_upgrade;
+            }
+
+            location / {
+                # Add trailing / if missing
+                rewrite ^(.*)$http_host(.*[^/])$ $1$http_host$2/ permanent;
+                uwsgi_read_timeout 120s;
+                uwsgi_pass uwsgi;
+                include /etc/nginx/uwsgi_params;                proxy_set_header X-Forwarded-Port 443;
+                uwsgi_param HTTP_X_FORWARDED_PORT 443;
+            }
+        }
+    }
+  redis_conf: |
+    unixsocket /var/run/redis/redis.sock
+    unixsocketperm 777
+    port 0
+    bind 127.0.0.1
+  settings: |
+    import os
+    import socket
+
+
+    def get_secret():
+        if os.getenv("SECRET_KEY") != "":
+            return os.getenv("SECRET_KEY")
+        if os.path.exists("/etc/tower/SECRET_KEY"):
+            return open('/etc/tower/SECRET_KEY', 'rb').read().strip()
+
+    ADMINS = ()
+    STATIC_ROOT = '/var/lib/awx/public/static'
+    PROJECTS_ROOT = '/var/lib/awx/projects'
+    JOBOUTPUT_ROOT = '/var/lib/awx/job_status'
+
+    SECRET_KEY = get_secret()
+
+    ALLOWED_HOSTS = ['*']
+
+    INTERNAL_API_URL = 'http://127.0.0.1:8052'
+
+    # Sets Ansible Collection path
+    AWX_ANSIBLE_COLLECTIONS_PATHS = '/var/lib/awx/vendor/awx_ansible_collections'
+
+    # Container environments don't like chroots
+    AWX_PROOT_ENABLED = False
+
+    # Automatically deprovision pods that go offline
+    AWX_AUTO_DEPROVISION_INSTANCES = True
+
+    CLUSTER_HOST_ID = socket.gethostname()
+    SYSTEM_UUID = '00000000-0000-0000-0000-000000000000'
+
+    CSRF_COOKIE_SECURE = False
+    SESSION_COOKIE_SECURE = False
+
+    SERVER_EMAIL = 'root@localhost'
+    DEFAULT_FROM_EMAIL = 'webmaster@localhost'
+    EMAIL_SUBJECT_PREFIX = '[AWX] '
+
+    EMAIL_HOST = 'localhost'
+    EMAIL_PORT = 25
+    EMAIL_HOST_USER = ''
+    EMAIL_HOST_PASSWORD = ''
+    EMAIL_USE_TLS = False
+
+    LOGGING['handlers']['console'] = {
+        '()': 'logging.StreamHandler',
+        'level': 'DEBUG',
+        'formatter': 'simple',
+    }
+
+    LOGGING['loggers']['django.request']['handlers'] = ['console']
+    LOGGING['loggers']['rest_framework.request']['handlers'] = ['console']
+    LOGGING['loggers']['awx']['handlers'] = ['console', 'external_logger']
+    LOGGING['loggers']['awx.main.commands.run_callback_receiver']['handlers'] = ['console']
+    LOGGING['loggers']['awx.main.tasks']['handlers'] = ['console', 'external_logger']
+    LOGGING['loggers']['awx.main.scheduler']['handlers'] = ['console', 'external_logger']
+    LOGGING['loggers']['django_auth_ldap']['handlers'] = ['console']
+    LOGGING['loggers']['social']['handlers'] = ['console']
+    LOGGING['loggers']['system_tracking_migrations']['handlers'] = ['console']
+    LOGGING['loggers']['rbac_migrations']['handlers'] = ['console']
+    LOGGING['loggers']['awx.isolated.manager.playbooks']['handlers'] = ['console']
+    LOGGING['handlers']['callback_receiver'] = {'class': 'logging.NullHandler'}
+    LOGGING['handlers']['task_system'] = {'class': 'logging.NullHandler'}
+    LOGGING['handlers']['tower_warnings'] = {'class': 'logging.NullHandler'}
+    LOGGING['handlers']['rbac_migrations'] = {'class': 'logging.NullHandler'}
+    LOGGING['handlers']['system_tracking_migrations'] = {'class': 'logging.NullHandler'}
+    LOGGING['handlers']['management_playbooks'] = {'class': 'logging.NullHandler'}
+
+    DATABASES = {
+        'default': {
+            'ATOMIC_REQUESTS': True,
+            'ENGINE': 'awx.main.db.profiled_pg',
+            'NAME': os.getenv("DATABASE_NAME"),
+            'USER': os.getenv("DATABASE_USER"),
+            'PASSWORD':  os.getenv("DATABASE_PASSWORD"),
+            'HOST':  os.getenv("DATABASE_HOST"),
+            'PORT':  int(os.getenv("DATABASE_PORT")),
+        }
+    }
+
+    if os.getenv("DATABASE_SSLMODE", False):
+        DATABASES['default']['OPTIONS'] = {'sslmode': os.getenv("DATABASE_SSLMODE")}
+
+    USE_X_FORWARDED_PORT = True
+    BROADCAST_WEBSOCKET_PORT = 8052
+    BROADCAST_WEBSOCKET_PROTOCOL = 'http'
+kind: ConfigMap
+metadata:
+  labels:
+    app: awx
+  name: awx-configmap
+  namespace: awx-operator
