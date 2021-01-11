@@ -1,0 +1,7 @@
+apiVersion: acmp.corp/v1
+kind: NamespaceRequest
+metadata:
+  name: a
+spec:
+  team: blue-team
+  memory: 16
