@@ -150,8 +150,7 @@ spec:
           ttl: 30
         podAnnotations: {}
         postgresql:
-          parameters:
-            log_destination: stderr
+          parameters: "{{ .spec.parameters | default (coll.Dict) | data.ToJSON }}"
           version: "12"
         resources:
           limits:

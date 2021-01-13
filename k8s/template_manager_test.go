@@ -3,6 +3,7 @@ package k8s_test
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/flanksource/template-operator/k8s"
 	. "github.com/onsi/ginkgo"
@@ -69,7 +70,8 @@ spec:
   synchronous_mode: false
 `
 
-			templateManager, err := k8s.NewTemplateManager(kommonsClient(), testLog)
+			cache := k8s.NewSchemaCache(clientset(), 5*time.Minute, testLog)
+			templateManager, err := k8s.NewTemplateManager(kommonsClient(), testLog, cache)
 			Expect(err).ToNot(HaveOccurred())
 
 			result, err := templateManager.Template([]byte(templateJSON), db)

@@ -16,15 +16,6 @@ spec:
     - name: v1
       served: true
       storage: true
-
----
-apiVersion: acmp.corp/v1
-kind: NamespaceRequest
-metadata:
-  name: a
-spec:
-  team: blue-team
-  memory: 16
 ---
 apiVersion: templating.flanksource.com/v1
 kind: Template

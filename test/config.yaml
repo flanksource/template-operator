@@ -32,6 +32,11 @@ s3:
   skipTLSVerify: true
   e2e:
     minio: true
+minio:
+  version: RELEASE.2020-09-02T18-19-50Z
+  access_key: minio
+  secret_key: minio123
+  replicas: 1
 ca:
   cert: .certs/root-ca.crt
   privateKey: .certs/root-ca.key
@@ -44,6 +49,7 @@ canaryChecker:
   version: v0.11.2
 postgresOperator:
   version: v1.3.4.flanksource.1
+  backupBucket: e2e-postgres-backups
 test:
   exclude:
     - configmap-reloader

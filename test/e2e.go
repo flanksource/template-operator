@@ -4,8 +4,10 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/flanksource/commons/console"
@@ -15,9 +17,12 @@ import (
 	templatev1 "github.com/flanksource/template-operator/api/v1"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
+	postgresv1 "github.com/zalando/postgres-operator/pkg/apis/acid.zalan.do/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -40,6 +45,8 @@ var (
 	tests  = map[string]Test{
 		"template-operator-is-running": TestTemplateOperatorIsRunning,
 		"deployment-replicas":          TestDeploymentReplicas,
+		"copy-to-namespace":            TestCopyToNamespace,
+		"awx-operator":                 TestAwxOperator,
 	}
 	scheme              = runtime.NewScheme()
 	restConfig          *rest.Config
@@ -53,6 +60,7 @@ type deploymentFn func(*appsv1.Deployment) bool
 func main() {
 	var kubeconfig *string
 	var timeout *time.Duration
+	var debug *bool
 	var err error
 	if home := homeDir(); home != "" {
 		kubeconfig = flag.String("kubeconfig", filepath.Join(home, ".kube", "config"), "(optional) absolute path to the kubeconfig file")
@@ -60,7 +68,12 @@ func main() {
 		kubeconfig = flag.String("kubeconfig", "", "absolute path to the kubeconfig file")
 	}
 	timeout = flag.Duration("timeout", 10*time.Minute, "Global timeout for all tests")
+	debug = flag.Bool("debug", false, "Debug mode")
 	flag.Parse()
+
+	if debug != nil && *debug {
+		logger.StandardLogger().SetLogLevel(4)
+	}
 
 	_ = clientgoscheme.AddToScheme(scheme)
 
@@ -225,6 +238,156 @@ spec:
 	return nil
 }
 
+func TestCopyToNamespace(ctx context.Context, test *console.TestResults) error {
+	hash := utils.RandomString(6)
+	sourceLabels := map[string]string{"e2e-namespace-role": "copy-to-namespace-source"}
+	ns := fmt.Sprintf("template-operator-e2e-source-%s", hash)
+	if err := client.CreateOrUpdateNamespace(ns, sourceLabels, nil); err != nil {
+		test.Failf("TestCopyToNamespace", "failed to create namespace %s", ns)
+		return err
+	}
+	destLabels := map[string]string{"e2e-namespace-role": "copy-to-namespace-dest"}
+	namespaces := []string{
+		"template-operator-e2e-dest-1",
+		"template-operator-e2e-dest-2",
+	}
+	for _, n := range namespaces {
+		if err := client.CreateOrUpdateNamespace(n, destLabels, nil); err != nil {
+			test.Failf("TestCopyToNamespace", "failed to create namespace %s", n)
+			return err
+		}
+	}
+
+	defer func() {
+		if err := k8s.CoreV1().Namespaces().Delete(context.Background(), ns, metav1.DeleteOptions{}); err != nil {
+			log.Errorf("failed to delete namespace %s: %v", ns, err)
+		}
+		for _, n := range namespaces {
+			if err := k8s.CoreV1().Namespaces().Delete(context.Background(), n, metav1.DeleteOptions{}); err != nil {
+				log.Errorf("failed to delete namespace %s: %v", n, err)
+			}
+		}
+	}()
+
+	template, err := readFixture("copy-to-namespace.yml")
+	if err != nil {
+		test.Failf("TestCopyToNamespace", "failed to read fixture copy-to-namespace.yml: %v", err)
+		return err
+	}
+	if err := client.Apply("", template); err != nil {
+		test.Failf("TestCopyToNamespace", "failed to apply template copy-to-namespace: %v", err)
+		return err
+	}
+
+	secret := &v1.Secret{
+		TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("copy-to-namespace-secret"),
+			Namespace: ns,
+			Labels: map[string]string{
+				"e2e-test": "copy-to-namespace",
+			},
+		},
+		Data: map[string][]byte{
+			"foo": []byte("bar"),
+		},
+	}
+	if _, err := k8s.CoreV1().Secrets(secret.Namespace).Create(ctx, secret, metav1.CreateOptions{}); err != nil {
+		test.Failf("TestCopyToNamespace", "failed to create source secret")
+		return err
+	}
+
+	deadline, _ := context.WithTimeout(ctx, 2*time.Minute)
+	if secret1, err := waitForSecret(deadline, secret.Name, namespaces[0]); err != nil {
+		test.Failf("TestCopyToNamespace", "error waiting for secret %s in namespace %s", secret.Name, namespaces[0])
+		return err
+	} else if string(secret1.Data["foo"]) != "bar" {
+		test.Failf("TestCopyToNamespace", "expected secret1 data to have foo=bar, has foo=%s", string(secret1.Data["foo"]))
+	}
+	if secret2, err := waitForSecret(deadline, secret.Name, namespaces[0]); err != nil {
+		test.Failf("TestCopyToNamespace", "error waiting for secret %s in namespace %s", secret.Name, namespaces[0])
+		return err
+	} else if string(secret2.Data["foo"]) != "bar" {
+		test.Failf("TestCopyToNamespace", "expected secret2 data to have foo=bar, has foo=%s", string(secret2.Data["foo"]))
+	}
+
+	test.Passf("TestCopyToNamespace", "Secret was copied to all namespaces")
+	return nil
+}
+
+func TestAwxOperator(ctx context.Context, test *console.TestResults) error {
+	awxName := fmt.Sprintf("test-awx-e2e-%s", utils.RandomString(6))
+	awx := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "awx.flanksource.com/v1beta1",
+			"kind":       "AWX",
+			"metadata": map[string]interface{}{
+				"name":      awxName,
+				"namespace": "awx-operator",
+			},
+			"spec": map[string]interface{}{
+				"version": "15.0.0",
+				"backup": map[string]interface{}{
+					"bucket": "e2e-postgres-backups",
+				},
+				"parameters": map[string]interface{}{
+					"max_connections":      "1024",
+					"shared_buffers":       "1024MB",
+					"work_mem":             "475MB",
+					"maintenance_work_mem": "634MB",
+				},
+				"cpu":    0.5,
+				"memory": "6Gi",
+			},
+		},
+	}
+
+	if err := client.Apply(awx.GetNamespace(), awx); err != nil {
+		test.Failf("TestAwxOperator", "failed to create test awx: %v", err)
+		return err
+	}
+
+	defer func() {
+		if err := client.DeleteUnstructured(awx.GetNamespace(), awx); err != nil {
+			logger.Errorf("failed to delete awx %s: %v", awx.GetName(), err)
+		}
+	}()
+
+	postgresqlDb := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "db.flanksource.com/v1",
+			"kind":       "PostgresqlDB",
+			"metadata": map[string]interface{}{
+				"name":      awxName,
+				"namespace": "postgres-operator",
+			},
+		},
+	}
+
+	if err := waitForPostgresqlDB(ctx, postgresqlDb, test, "TestAwxOperator"); err != nil {
+		return err
+	}
+
+	postgres := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "acid.zalan.do/v1",
+			"kind":       "postgresql",
+			"metadata": map[string]interface{}{
+				"name":      fmt.Sprintf("postgres-%s", awxName),
+				"namespace": "postgres-operator",
+			},
+		},
+	}
+
+	if err := waitForPostgres(ctx, postgres, test, "TestAwxOperator"); err != nil {
+		return err
+	}
+
+	test.Passf("TestAwxOperator", "All awx resources running")
+
+	return nil
+}
+
 func waitForDeploymentChanged(ctx context.Context, deployment *appsv1.Deployment, fn deploymentFn) (*appsv1.Deployment, error) {
 	for {
 		d, err := k8s.AppsV1().Deployments(deployment.Namespace).Get(ctx, deployment.Name, metav1.GetOptions{})
@@ -239,6 +402,141 @@ func waitForDeploymentChanged(ctx context.Context, deployment *appsv1.Deployment
 		log.Debugf("Deployment %s not changed", deployment.Name)
 		time.Sleep(2 * time.Second)
 	}
+}
+
+func waitForSecret(ctx context.Context, name, namespace string) (*v1.Secret, error) {
+	for {
+		secret, err := k8s.CoreV1().Secrets(namespace).Get(ctx, name, metav1.GetOptions{})
+		if err != nil && !kerrors.IsNotFound(err) {
+			return nil, errors.Wrapf(err, "failed to get secret %s in namespace %s", name, namespace)
+		} else if kerrors.IsNotFound(err) {
+			time.Sleep(2 * time.Second)
+			continue
+		}
+		return secret, nil
+	}
+}
+
+func waitForPostgresqlDB(ctx context.Context, postgresqlDB *unstructured.Unstructured, test *console.TestResults, testName string) error {
+	name := postgresqlDB.GetName()
+	logger.Debugf("Waiting for PostgresqlDB to be created by Awx Operator")
+	for {
+		client, _, _, err := client.GetDynamicClientFor(postgresqlDB.GetNamespace(), postgresqlDB)
+		if err != nil {
+			test.Failf(testName, "failed to get client for PostgresqlDB: %v", err)
+			return err
+		}
+		db, err := client.Get(ctx, name, metav1.GetOptions{})
+		if err != nil && !kerrors.IsNotFound(err) {
+			test.Failf(testName, "failed to get PostgresqlDB: %v", err)
+			return err
+		} else if kerrors.IsNotFound(err) {
+			time.Sleep(2 * time.Second)
+			continue
+		}
+
+		// db.SetManagedFields([]metav1.ManagedFieldsEntry{})
+		db.SetManagedFields(nil)
+		db.SetSelfLink("")
+		db.SetUID("")
+		db.SetResourceVersion("")
+		db.SetGeneration(0)
+		db.SetCreationTimestamp(metav1.Time{})
+		yml, err := yaml.Marshal(&db.Object)
+		if err != nil {
+			test.Failf(testName, "failed to marshal PostgresqlDB: %v", err)
+			return err
+		}
+
+		expectedYamlTemplate := `
+apiVersion: db.flanksource.com/v1
+kind: PostgresqlDB
+metadata:
+  annotations:
+    template-operator-owner-ref: awx-operator/%s
+  name: %s
+  namespace: postgres-operator
+spec:
+  backup:
+    bucket: e2e-postgres-backups
+  cpu: "0.5"
+  memory: 6Gi
+  parameters:
+    maintenance_work_mem: 634MB
+    max_connections: "1024"
+    shared_buffers: 1024MB
+    work_mem: 475MB
+  replicas: 2
+  storage:
+    storageClass: local-path
+`
+		if !expectYamlMatch(expectedYamlTemplate, string(yml), name, name) {
+			test.Failf(testName, "postgresqlDB does not match")
+			return errors.Errorf("postgresqlDB does not match")
+		}
+
+		test.Passf(testName, "Found postgresqlDB %s", name)
+
+		return nil
+	}
+}
+
+func waitForPostgres(ctx context.Context, postgres *unstructured.Unstructured, test *console.TestResults, testName string) error {
+	name := postgres.GetName()
+	logger.Debugf("Waiting for Postgres to be created by PostgresqlDB operator")
+	for {
+		client, _, _, err := client.GetDynamicClientFor(postgres.GetNamespace(), postgres)
+		if err != nil {
+			test.Failf(testName, "failed to get client for Postgres: %v", err)
+			return err
+		}
+		db, err := client.Get(ctx, name, metav1.GetOptions{})
+		if err != nil && !kerrors.IsNotFound(err) {
+			test.Failf(testName, "failed to get Postgres: %v", err)
+			return err
+		} else if kerrors.IsNotFound(err) {
+			time.Sleep(2 * time.Second)
+			continue
+		}
+
+		yml, err := yaml.Marshal(db)
+		if err != nil {
+			test.Failf(testName, "failed to marshal Postgres to yaml: %v", err)
+			return err
+		}
+		ddb := &postgresv1.Postgresql{}
+		if err := yaml.Unmarshal(yml, ddb); err != nil {
+			test.Failf(testName, "failed to unmarshal Postgres from yaml: %v", err)
+			return err
+		}
+
+		test.Passf(testName, "Found postgres %s", name)
+
+		expectInt(test, testName, "instances", int(ddb.Spec.NumberOfInstances), 2)
+		expect(test, testName, "CPU Request", ddb.Spec.ResourceRequests.CPU, "0.5")
+		expect(test, testName, "CPU Limit", ddb.Spec.ResourceLimits.CPU, "0.5")
+		expect(test, testName, "Memory Request", ddb.Spec.ResourceRequests.Memory, "6Gi")
+		expect(test, testName, "Memory Limit", ddb.Spec.ResourceLimits.Memory, "6Gi")
+		expect(test, testName, "Max connections", ddb.Spec.Parameters["max_connections"], "1024")
+		expect(test, testName, "Shared buffers", ddb.Spec.Parameters["shared_buffers"], "1024MB")
+		expect(test, testName, "Work mem", ddb.Spec.Parameters["work_mem"], "475MB")
+		expect(test, testName, "Maintenance work mem", ddb.Spec.Parameters["maintenance_work_mem"], "634MB")
+
+		return nil
+	}
+}
+
+func readFixture(path string) (*templatev1.Template, error) {
+	templateBytes, err := ioutil.ReadFile(filepath.Join("test", "fixtures", path))
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to read template %s", path)
+	}
+	template := &templatev1.Template{}
+	if err := yaml.Unmarshal(templateBytes, template); err != nil {
+		return nil, errors.Wrap(err, "failed to unmarshal yaml")
+	}
+
+	return template, nil
 }
 
 func assertEquals(test *console.TestResults, name, actual, expected string) error {
@@ -273,4 +571,30 @@ func homeDir() string {
 		return h
 	}
 	return os.Getenv("USERPROFILE") // windows
+}
+
+func expectYamlMatch(expectedTemplate, found string, args ...interface{}) bool {
+	expectedYaml := strings.TrimSpace(fmt.Sprintf(expectedTemplate, args...))
+	foundYaml := strings.TrimSpace(found)
+	if expectedYaml != foundYaml {
+		logger.Debugf("Expected yaml:\n%s\nFound:\n%s\n", expectedYaml, foundYaml)
+		return false
+	}
+	return true
+}
+
+func expectInt(test *console.TestResults, testName, field string, found, expected int) {
+	if found != expected {
+		test.Failf(testName, "Expected field %s to equal %d, got %d", field, expected, found)
+	} else {
+		test.Passf(testName, "%s equals %d as expected", field, expected)
+	}
+}
+
+func expect(test *console.TestResults, testName, field string, found, expected string) {
+	if found != expected {
+		test.Failf(testName, "Expected field %s to equal %s, got %s", field, expected, found)
+	} else {
+		test.Passf(testName, "%s equals %s as expected", field, expected)
+	}
 }

@@ -225,3 +225,16 @@ func (p *PatchApplier) JSONPath(object interface{}, jsonpath string) string {
 	value := gjson.Get(string(jsonObject), jsonpath)
 	return value.String()
 }
+
+var annotationsBlacklist = []string{
+	"metadata.annotations.serving.knative.dev/creator",
+	"metadata.annotations.serving.knative.dev/lastModifier",
+}
+
+func stripAnnotations(obj *unstructured.Unstructured) {
+	annotations := obj.GetAnnotations()
+	for _, a := range annotationsBlacklist {
+		delete(annotations, a)
+	}
+	obj.SetAnnotations(annotations)
+}

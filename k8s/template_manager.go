@@ -44,7 +44,7 @@ type ResourcePatch struct {
 	PatchType  PatchType
 }
 
-func NewTemplateManager(c *kommons.Client, log logr.Logger) (*TemplateManager, error) {
+func NewTemplateManager(c *kommons.Client, log logr.Logger, cache *SchemaCache) (*TemplateManager, error) {
 	clientset, _ := c.GetClientset()
 
 	restConfig, err := c.GetRESTConfig()
@@ -56,7 +56,7 @@ func NewTemplateManager(c *kommons.Client, log logr.Logger) (*TemplateManager, e
 		return nil, errors.Wrap(err, "failed to create crd client")
 	}
 
-	schemaManager, err := NewSchemaManager(clientset, crdClient)
+	schemaManager, err := NewSchemaManagerWithCache(clientset, crdClient, cache)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create schema manager")
 	}
@@ -153,6 +153,7 @@ func (tm *TemplateManager) Run(ctx context.Context, template *templatev1.Templat
 			}
 			if len(template.Spec.JsonPatches) > 0 || len(template.Spec.Patches) > 0 {
 				target = markApplied(template, target)
+				stripAnnotations(target)
 				if err := tm.Client.ApplyUnstructured(source.GetNamespace(), target); err != nil {
 					return err
 				}
@@ -177,6 +178,8 @@ func (tm *TemplateManager) Run(ctx context.Context, template *templatev1.Templat
 					crossNamespaceOwner(&obj, source)
 				}
 
+				stripAnnotations(&obj)
+
 				if tm.Log.V(2).Enabled() {
 					tm.Log.V(2).Info("Applying", "kind", obj.GetKind(), "namespace", obj.GetNamespace(), "name", obj.GetName(), "obj", obj)
 				} else {
@@ -192,6 +195,7 @@ func (tm *TemplateManager) Run(ctx context.Context, template *templatev1.Templat
 			for _, namespace := range template.Spec.CopyToNamespaces.Namespaces {
 				newResource := source.DeepCopy()
 				newResource.SetNamespace(namespace)
+				stripAnnotations(newResource)
 
 				crossNamespaceOwner(newResource, source)
 
