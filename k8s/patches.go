@@ -233,14 +233,8 @@ var annotationsBlacklist = []string{
 
 func stripAnnotations(obj *unstructured.Unstructured) {
 	annotations := obj.GetAnnotations()
-	fmt.Printf("annotations: %v\n", annotations)
-
 	for _, a := range annotationsBlacklist {
-		fmt.Printf("a: %s\n", a)
 		delete(annotations, a)
 	}
-
-	fmt.Printf("annotations: %v\n", annotations)
-
 	obj.SetAnnotations(annotations)
 }

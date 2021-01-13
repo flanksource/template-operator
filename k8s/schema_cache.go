@@ -43,11 +43,11 @@ func (sc *SchemaCache) FetchSchema() (*spec.Swagger, error) {
 	defer sc.lock.Unlock()
 
 	if sc.resources == nil || time.Now().After(sc.schemaExpireTimestamp) {
-		sc.log.Info("before fetch schema")
+		sc.log.Debug("before fetch schema")
 		if err := sc.fetchAndSetSchema(); err != nil {
 			return nil, errors.Wrap(err, "failed to refetch API schema")
 		}
-		sc.log.Info("after fetch schema")
+		sc.log.Debug("after fetch schema")
 	}
 
 	return sc.schema, nil
@@ -58,13 +58,12 @@ func (sc *SchemaCache) FetchResources() ([]*metav1.APIResourceList, error) {
 	defer sc.lock.Unlock()
 
 	if sc.resources == nil || time.Now().After(sc.resourcesExpireTimestamp) {
-		sc.log.Info("before fetch resources")
+		sc.log.Debug("before fetch resources")
 		if err := sc.fetchAndSetResources(); err != nil {
 			return nil, errors.Wrap(err, "failed to refetch API resources")
 		}
-		sc.log.Info("after fetch resources")
+		sc.log.Debug("after fetch resources")
 	}
-
 	return sc.resources, nil
 }
 
