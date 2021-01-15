@@ -84,6 +84,8 @@ spec:
                   type: string
                 fieldSelector:
                   type: string
+                forEach:
+                  type: string
                 kind:
                   type: string
                 labelSelector:
@@ -205,6 +207,8 @@ spec:
                 apiVersion:
                   type: string
                 fieldSelector:
+                  type: string
+                forEach:
                   type: string
                 kind:
                   type: string

@@ -1,0 +1,89 @@
+apiVersion: apiextensions.k8s.io/v1beta1
+kind: CustomResourceDefinition
+metadata:
+  name: abcds.abcd.flanksource.com
+spec:
+  group: abcd.flanksource.com
+  names:
+    kind: ABCD
+    listKind: ABCDList
+    plural: abcds
+    singular: abcd
+  scope: Namespaced
+  subresources:
+    status: {}
+  version: v1
+  versions:
+    - name: v1
+      served: true
+      storage: true
+  validation:
+    openAPIV3Schema:
+      description: Schema validation for the ABCD CRDs
+      type: object
+      properties:
+        spec:
+          type: object
+---
+apiVersion: apiextensions.k8s.io/v1beta1
+kind: CustomResourceDefinition
+metadata:
+  name: abcdtopics.abcd.flanksource.com
+spec:
+  group: abcd.flanksource.com
+  names:
+    kind: ABCDTopic
+    listKind: ABCDTopicList
+    plural: abcdtopics
+    singular: abcdtopic
+  scope: Namespaced
+  subresources:
+    status: {}
+  version: v1
+  versions:
+    - name: v1
+      served: true
+      storage: true
+  validation:
+    openAPIV3Schema:
+      description: Schema validation for the ABCD Topic CRDs
+      type: object
+      properties:
+        spec:
+          type: object
+---
+apiVersion: templating.flanksource.com/v1
+kind: Template
+metadata:
+  name: abcd-topic
+spec:
+  source:
+    apiVersion: abcd.flanksource.com/v1
+    kind: ABCD
+  resources:
+    - forEach: "{{.spec.topics}}"
+      apiVersion: abcd.flanksource.com/v1
+      kind: ABCDTopic
+      metadata:
+        name: "{{.metadata.name}}-{{.each}}"
+        namespace: "{{.metadata.namespace}}"
+      spec:
+        topicName: "{{.each}}"
+---
+apiVersion: templating.flanksource.com/v1
+kind: Template
+metadata:
+  name: abcd-topic-map
+spec:
+  source:
+    apiVersion: abcd.flanksource.com/v1
+    kind: ABCD
+  resources:
+    - forEach: "{{.spec.topicsMap}}"
+      apiVersion: abcd.flanksource.com/v1
+      kind: ABCDTopic
+      metadata:
+        name: "{{.metadata.name}}-{{.each.key}}"
+        namespace: "{{.metadata.namespace}}"
+      spec:
+        "{{.each.key}}": "{{.each.value}}"

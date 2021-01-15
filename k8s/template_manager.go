@@ -3,6 +3,7 @@ package k8s
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/hairyhenderson/gomplate/v3"
 	"github.com/pkg/errors"
+	"github.com/tidwall/gjson"
 	v1 "k8s.io/api/core/v1"
 	extapi "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -44,6 +46,17 @@ type ResourcePatch struct {
 	PatchType  PatchType
 }
 
+type ForEachResource struct {
+	ForEach string `json:"forEach"`
+}
+
+type ForEach struct {
+	IsArray bool
+	IsMap   bool
+	Array   []interface{}
+	Map     map[string]interface{}
+}
+
 func NewTemplateManager(c *kommons.Client, log logr.Logger, cache *SchemaCache) (*TemplateManager, error) {
 	clientset, _ := c.GetClientset()
 
@@ -56,7 +69,7 @@ func NewTemplateManager(c *kommons.Client, log logr.Logger, cache *SchemaCache) 
 		return nil, errors.Wrap(err, "failed to create crd client")
 	}
 
-	schemaManager, err := NewSchemaManagerWithCache(clientset, crdClient, cache)
+	schemaManager, err := NewSchemaManagerWithCache(clientset, crdClient, cache, log)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create schema manager")
 	}
@@ -161,15 +174,11 @@ func (tm *TemplateManager) Run(ctx context.Context, template *templatev1.Templat
 		}
 
 		for _, item := range template.Spec.Resources {
-			data, err := tm.Template(item.Raw, target.Object)
+			objs, err := tm.getObjects(item.Raw, target.Object)
 			if err != nil {
 				return err
 			}
 
-			objs, err := kommons.GetUnstructuredObjects(data)
-			if err != nil {
-				return nil
-			}
 			for _, obj := range objs {
 				// cross-namespace owner references are not allowed, so we create an annotation for tracking purposes only
 				if source.GetNamespace() == obj.GetNamespace() {
@@ -270,6 +279,119 @@ func (tm *TemplateManager) duckTypeTemplateResult(objYaml []byte) ([]byte, error
 	}
 
 	return yaml.Marshal(&obj.Object)
+}
+
+func (tm *TemplateManager) getObjects(rawItem []byte, target map[string]interface{}) ([]unstructured.Unstructured, error) {
+	j, err := json.Marshal(target)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to marshal target")
+	}
+	targetCopy := map[string]interface{}{}
+	if err := json.Unmarshal(j, &targetCopy); err != nil {
+		return nil, errors.Wrap(err, "failed to unmarshal target copy")
+	}
+
+	forEach, err := tm.getForEach(rawItem, target)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to get forEach")
+	}
+
+	if !forEach.IsArray && !forEach.IsMap {
+		data, err := tm.Template(rawItem, targetCopy)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to template resources")
+		}
+
+		objs, err := kommons.GetUnstructuredObjects(data)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to get unstructured objects")
+		}
+		return objs, nil
+	}
+
+	objs := []unstructured.Unstructured{}
+
+	if forEach.IsArray {
+		for _, e := range forEach.Array {
+			targetCopy["each"] = e
+
+			data, err := tm.Template(rawItem, targetCopy)
+			if err != nil {
+				return nil, errors.Wrap(err, "failed to template resources")
+			}
+
+			o, err := kommons.GetUnstructuredObjects(data)
+			if err != nil {
+				return nil, errors.Wrap(err, "failed to get unstructured objects")
+			}
+
+			objs = append(objs, o...)
+		}
+	} else {
+		for k, v := range forEach.Map {
+			targetCopy["each"] = map[string]interface{}{
+				"key":   k,
+				"value": v,
+			}
+
+			data, err := tm.Template(rawItem, targetCopy)
+			if err != nil {
+				return nil, errors.Wrap(err, "failed to template resources")
+			}
+
+			o, err := kommons.GetUnstructuredObjects(data)
+			if err != nil {
+				return nil, errors.Wrap(err, "failed to get unstructured objects")
+			}
+
+			objs = append(objs, o...)
+		}
+	}
+
+	return objs, nil
+}
+
+func (tm *TemplateManager) getForEach(rawItem []byte, target map[string]interface{}) (*ForEach, error) {
+	fer := &ForEachResource{}
+	if err := json.Unmarshal(rawItem, fer); err != nil {
+		return nil, errors.Wrap(err, "failed to unmarshal rawItem into ForEachResource")
+	}
+
+	return tm.JSONPath(target, fer.ForEach)
+}
+
+func (tm *TemplateManager) JSONPath(object interface{}, jsonpath string) (*ForEach, error) {
+	jsonpath = strings.TrimPrefix(jsonpath, "{{")
+	jsonpath = strings.TrimSuffix(jsonpath, "}}")
+	jsonpath = strings.TrimPrefix(jsonpath, ".")
+	jsonObject, err := json.Marshal(object)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to marshal json")
+	}
+
+	value := gjson.Get(string(jsonObject), jsonpath)
+
+	if !value.Exists() {
+		return nil, errors.Errorf("object %s does not have jsonPath %s", string(jsonObject), jsonpath)
+	}
+
+	if value.IsArray() {
+		arrayValue := value.Array()
+		array := make([]interface{}, len(arrayValue))
+		for i := range value.Array() {
+			array[i] = arrayValue[i].Value()
+		}
+		return &ForEach{IsArray: true, Array: array}, nil
+	} else if value.IsObject() {
+		mapValue := value.Map()
+		object := make(map[string]interface{})
+		for k, v := range mapValue {
+			object[k] = v.Value()
+		}
+		return &ForEach{IsMap: true, Map: object}, nil
+	}
+
+	return nil, errors.Errorf("field %s is not map or array", jsonpath)
 }
 
 func labelSelectorToString(l metav1.LabelSelector) (string, error) {

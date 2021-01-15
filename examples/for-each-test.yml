@@ -1,0 +1,16 @@
+apiVersion: abcd.flanksource.com/v1
+kind: ABCD
+metadata:
+  name: test
+  namespace: default
+spec:
+  topics:
+    - a
+    - b
+    - c
+    - d
+  topicsMap:
+    a1: a2
+    b1: b2
+    c1: c2
+    d1: d2

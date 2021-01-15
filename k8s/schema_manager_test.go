@@ -404,7 +404,7 @@ func duckTypeWithValue(template string) (*unstructured.Unstructured, error) {
 }
 
 func newSchemaManager() *k8s.SchemaManager {
-	sm, err := k8s.NewSchemaManager(clientset(), crdClient())
+	sm, err := k8s.NewSchemaManager(clientset(), crdClient(), testLog)
 	if err != nil {
 		logger.Fatalf("failed to get schema manager: %v", err)
 	}

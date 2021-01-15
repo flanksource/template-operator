@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/flanksource/commons/logger"
+	"github.com/go-logr/logr"
 	"github.com/go-openapi/jsonpointer"
 	"github.com/go-openapi/spec"
 	"github.com/pkg/errors"
@@ -25,6 +25,7 @@ type SchemaManager struct {
 	serverResources []*metav1.APIResourceList
 	clientset       *kubernetes.Clientset
 	crdClient       extapi.ApiextensionsV1beta1Interface
+	log             logr.Logger
 }
 
 type TypedField struct {
@@ -34,7 +35,7 @@ type TypedField struct {
 
 type MapInterface map[string]interface{}
 
-func NewSchemaManagerWithCache(clientset *kubernetes.Clientset, crdClient extapi.ApiextensionsV1beta1Interface, cache *SchemaCache) (*SchemaManager, error) {
+func NewSchemaManagerWithCache(clientset *kubernetes.Clientset, crdClient extapi.ApiextensionsV1beta1Interface, cache *SchemaCache, log logr.Logger) (*SchemaManager, error) {
 	s, err := cache.FetchSchema()
 	if err != nil {
 		return nil, err
@@ -50,11 +51,12 @@ func NewSchemaManagerWithCache(clientset *kubernetes.Clientset, crdClient extapi
 		serverResources: serverResources,
 		clientset:       clientset,
 		crdClient:       crdClient,
+		log:             log,
 	}
 	return mgr, nil
 }
 
-func NewSchemaManager(clientset *kubernetes.Clientset, crdClient extapi.ApiextensionsV1beta1Interface) (*SchemaManager, error) {
+func NewSchemaManager(clientset *kubernetes.Clientset, crdClient extapi.ApiextensionsV1beta1Interface, log logr.Logger) (*SchemaManager, error) {
 	bs, err := clientset.RESTClient().Get().AbsPath("openapi", "v2").DoRaw(context.TODO())
 	if err != nil {
 		return nil, err
@@ -75,6 +77,7 @@ func NewSchemaManager(clientset *kubernetes.Clientset, crdClient extapi.Apiexten
 		serverResources: serverResources,
 		clientset:       clientset,
 		crdClient:       crdClient,
+		log:             log,
 	}
 	return mgr, nil
 }
@@ -97,7 +100,6 @@ func (m *SchemaManager) DuckType(gvk schema.GroupVersionKind, object *unstructur
 }
 
 func (m *SchemaManager) duckType(schema *spec.Schema, object interface{}, prefix string) (interface{}, error) {
-	// fmt.Printf("Prefix: %s\n", prefix)
 	if isNil(object) {
 		return nil, nil
 	}
@@ -109,7 +111,7 @@ func (m *SchemaManager) duckType(schema *spec.Schema, object interface{}, prefix
 		if ok {
 			fieldType, err := m.FindTypeForKeyFromSchema(schema, prefix)
 			if err != nil {
-				logger.Errorf("failed to find type for key %s: %v", prefix, err)
+				m.log.V(2).Info("failed to find type for", "key", prefix, "error", err)
 				return bytes, nil
 			}
 			return transformBytesToType(bytes, fieldType)
@@ -145,7 +147,7 @@ func (m *SchemaManager) duckType(schema *spec.Schema, object interface{}, prefix
 		value := object.(string)
 		fieldType, err := m.FindTypeForKeyFromSchema(schema, prefix)
 		if err != nil {
-			logger.Errorf("failed to find type for key %s: %v", prefix, err)
+			m.log.V(2).Info("failed to find type for", "key", prefix, "error", err)
 			return value, nil
 		}
 		newValue, err := transformStringToType(value, fieldType)
@@ -157,7 +159,7 @@ func (m *SchemaManager) duckType(schema *spec.Schema, object interface{}, prefix
 		value := v.Int()
 		fieldType, err := m.FindTypeForKeyFromSchema(schema, prefix)
 		if err != nil {
-			logger.Errorf("failed to find type for key %s: %v", prefix, err)
+			m.log.V(2).Info("failed to find type for", "key", prefix, "error", err)
 			return value, nil
 		}
 		newValue, err := transformInt64ToType(value, fieldType)
@@ -169,7 +171,7 @@ func (m *SchemaManager) duckType(schema *spec.Schema, object interface{}, prefix
 		value := v.Uint()
 		fieldType, err := m.FindTypeForKeyFromSchema(schema, prefix)
 		if err != nil {
-			logger.Errorf("failed to find type for key %s: %v", prefix, err)
+			m.log.V(2).Info("failed to find type for", "key", prefix, "error", err)
 			return value, nil
 		}
 		newValue, err := transformUint64ToType(value, fieldType)
@@ -181,7 +183,7 @@ func (m *SchemaManager) duckType(schema *spec.Schema, object interface{}, prefix
 		value := int64(v.Float())
 		fieldType, err := m.FindTypeForKeyFromSchema(schema, prefix)
 		if err != nil {
-			logger.Errorf("failed to find type for key %s: %v", prefix, err)
+			m.log.V(2).Info("failed to find type for", "key", prefix, "error", err)
 			return value, nil
 		}
 		newValue, err := transformInt64ToType(value, fieldType)
@@ -193,7 +195,7 @@ func (m *SchemaManager) duckType(schema *spec.Schema, object interface{}, prefix
 		value := v.Bool()
 		fieldType, err := m.FindTypeForKeyFromSchema(schema, prefix)
 		if err != nil {
-			logger.Errorf("failed to find type for key %s: %v", prefix, err)
+			m.log.V(2).Info("failed to find type for", "key", prefix, "error", err)
 			return value, nil
 		}
 		newValue, err := transformBoolToType(value, fieldType)
