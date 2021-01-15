@@ -372,7 +372,7 @@ func (tm *TemplateManager) JSONPath(object interface{}, jsonpath string) (*ForEa
 	value := gjson.Get(string(jsonObject), jsonpath)
 
 	if !value.Exists() {
-		return nil, errors.Errorf("object %s does not have jsonPath %s", string(jsonObject), jsonpath)
+		return &ForEach{}, nil
 	}
 
 	if value.IsArray() {
