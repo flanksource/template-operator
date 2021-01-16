@@ -2,19 +2,16 @@ package k8s
 
 import (
 	"bytes"
-	"context"
-	"encoding/json"
 	"fmt"
 	"path/filepath"
 	osruntime "runtime"
 	"strings"
 	"text/template"
 
+	"github.com/flanksource/kommons/ktemplate"
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
-	"github.com/tidwall/gjson"
 	fyaml "gopkg.in/flanksource/yaml.v3"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/cli-runtime/pkg/kustomize"
@@ -47,10 +44,8 @@ func NewPatchApplier(clientset *kubernetes.Clientset, schemaManager *SchemaManag
 		SchemaManager: schemaManager,
 	}
 
-	p.FuncMap = template.FuncMap{
-		"kget":     p.KGet,
-		"jsonPath": p.JSONPath,
-	}
+	functions := ktemplate.NewFunctions(clientset)
+	p.FuncMap = functions.FuncMap()
 	return p, nil
 }
 
@@ -177,53 +172,6 @@ func (p *PatchApplier) Apply(resource *unstructured.Unstructured, patchStr strin
 	}
 
 	return resource, nil
-}
-
-func (p *PatchApplier) KGet(path, jsonpath string) string {
-	parts := strings.Split(path, "/")
-	if len(parts) != 3 {
-		p.Log.Error(errors.New("expected path to contain kind/namespace/name"), "invalid call to kget")
-		return ""
-	}
-
-	kind := parts[0]
-	namespace := parts[1]
-	name := parts[2]
-
-	if kind == "configmap" || kind == "cm" {
-		cm, err := p.Clientset.CoreV1().ConfigMaps(namespace).Get(context.Background(), name, metav1.GetOptions{})
-		if err != nil {
-			p.Log.Error(err, "failed to read configmap", "name", name, "namespace", namespace)
-			return ""
-		}
-
-		encodedJSON, err := json.Marshal(cm)
-		if err != nil {
-			p.Log.Error(err, "failed to encode json", "name", name, "namespace", namespace)
-			return ""
-		}
-		value := gjson.Get(string(encodedJSON), jsonpath)
-		return value.String()
-	} else if kind == "secret" {
-		secret, err := p.Clientset.CoreV1().Secrets(namespace).Get(context.Background(), name, metav1.GetOptions{})
-		if err != nil {
-			p.Log.Error(err, "failed to read secret", "name", name, "namespace", namespace)
-			return ""
-		}
-		return string(secret.Data[jsonpath])
-	}
-
-	return ""
-}
-
-func (p *PatchApplier) JSONPath(object interface{}, jsonpath string) string {
-	jsonObject, err := json.Marshal(object)
-	if err != nil {
-		p.Log.Error(err, "failed to encode json", "object", object)
-		return ""
-	}
-	value := gjson.Get(string(jsonObject), jsonpath)
-	return value.String()
 }
 
 var annotationsBlacklist = []string{
