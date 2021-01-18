@@ -9,9 +9,9 @@ import (
 	"text/template"
 
 	"github.com/flanksource/kommons"
+	"github.com/flanksource/kommons/ktemplate"
 	templatev1 "github.com/flanksource/template-operator/api/v1"
 	"github.com/go-logr/logr"
-	"github.com/hairyhenderson/gomplate/v3"
 	"github.com/pkg/errors"
 	v1 "k8s.io/api/core/v1"
 	extapi "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1beta1"
@@ -34,6 +34,7 @@ type TemplateManager struct {
 	Log           logr.Logger
 	PatchApplier  *PatchApplier
 	SchemaManager *SchemaManager
+	FuncMap       template.FuncMap
 }
 
 type ResourcePatch struct {
@@ -66,12 +67,15 @@ func NewTemplateManager(c *kommons.Client, log logr.Logger, cache *SchemaCache) 
 		return nil, errors.Wrap(err, "faile to create patch applier")
 	}
 
+	functions := ktemplate.NewFunctions(clientset)
+
 	tm := &TemplateManager{
 		Client:        c,
 		Interface:     clientset,
 		Log:           log,
 		PatchApplier:  patchApplier,
 		SchemaManager: schemaManager,
+		FuncMap:       functions.FuncMap(),
 	}
 	return tm, nil
 }
@@ -214,20 +218,13 @@ func (tm *TemplateManager) Run(ctx context.Context, template *templatev1.Templat
 	return nil
 }
 
-var funcs template.FuncMap
-
 func (tm *TemplateManager) Template(data []byte, vars interface{}) ([]byte, error) {
 	convertedYAML, err := yaml.JSONToYAML(data)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(funcs) == 0 {
-		funcs = gomplate.Funcs(nil)
-		funcs["kget"] = tm.PatchApplier.KGet
-	}
-
-	tpl, err := template.New("").Funcs(funcs).Parse(string(convertedYAML))
+	tpl, err := template.New("").Funcs(tm.FuncMap).Parse(string(convertedYAML))
 
 	if err != nil {
 		return nil, fmt.Errorf("invalid template %s: %v", strings.Split(string(data), "\n")[0], err)

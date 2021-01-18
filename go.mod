@@ -4,7 +4,7 @@ go 1.13
 
 require (
 	github.com/flanksource/commons v1.4.3
-	github.com/flanksource/kommons v0.1.6
+	github.com/flanksource/kommons v0.1.9
 	github.com/go-logr/logr v0.3.0
 	github.com/go-logr/zapr v0.3.0 // indirect
 	github.com/go-openapi/jsonpointer v0.19.3
@@ -15,7 +15,7 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/sirupsen/logrus v1.7.0
 	github.com/sykesm/zap-logfmt v0.0.4
-	github.com/tidwall/gjson v1.6.1
+	github.com/tidwall/gjson v1.6.7
 	github.com/zalando/postgres-operator v1.6.0
 	go.uber.org/zap v1.15.0
 	gopkg.in/flanksource/yaml.v3 v3.1.1
