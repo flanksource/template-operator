@@ -47,6 +47,8 @@ var (
 		"deployment-replicas":          TestDeploymentReplicas,
 		"copy-to-namespace":            TestCopyToNamespace,
 		"awx-operator":                 TestAwxOperator,
+		"for-each-array":               TestForEachWithArray,
+		"for-each-map":                 TestForEachWithMap,
 	}
 	scheme              = runtime.NewScheme()
 	restConfig          *rest.Config
@@ -388,6 +390,122 @@ func TestAwxOperator(ctx context.Context, test *console.TestResults) error {
 	return nil
 }
 
+func TestForEachWithArray(ctx context.Context, test *console.TestResults) error {
+	testName := "TestForEachWithArray"
+	ns := fmt.Sprintf("test-abcd-e2e-%s", utils.RandomString(6))
+	if err := client.CreateOrUpdateNamespace(ns, nil, nil); err != nil {
+		test.Failf(testName, "failed to create namespace %s: %v", ns, err)
+		return err
+	}
+
+	defer func() {
+		if err := k8s.CoreV1().Namespaces().Delete(context.Background(), ns, metav1.DeleteOptions{}); err != nil {
+			logger.Errorf("failed to delete namespace %s: %v", ns, err)
+		}
+	}()
+
+	abcdName := fmt.Sprintf("abcd-test-array")
+	abcd := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "abcd.flanksource.com/v1",
+			"kind":       "ABCD",
+			"metadata": map[string]interface{}{
+				"name":      abcdName,
+				"namespace": ns,
+			},
+			"spec": map[string]interface{}{
+				"topics": []string{"a", "b", "c", "d"},
+			},
+		},
+	}
+
+	if err := client.Apply(ns, abcd); err != nil {
+		test.Failf(testName, "failed to create test abcd: %v", err)
+		return err
+	}
+
+	defer func() {
+		if err := client.DeleteUnstructured(ns, abcd); err != nil {
+			logger.Errorf("failed to delete abcd %s: %v", abcdName, err)
+		}
+	}()
+
+	abcdTopics := []string{"a", "b", "c", "d"}
+	for _, topic := range abcdTopics {
+		name := fmt.Sprintf("abcd-test-array-%s", topic)
+		if err := waitForAbcdTopic(ctx, name, ns, map[string]string{"topicName": topic}); err != nil {
+			test.Failf(testName, "ABCD topic %s not found: %v", name, err)
+		} else {
+			test.Passf(testName, "ABCD topic %s found", name)
+		}
+	}
+
+	return nil
+}
+
+func TestForEachWithMap(ctx context.Context, test *console.TestResults) error {
+	testName := "TestForEachWithMap"
+	ns := fmt.Sprintf("test-abcd-e2e-%s", utils.RandomString(6))
+	if err := client.CreateOrUpdateNamespace(ns, nil, nil); err != nil {
+		test.Failf(testName, "failed to create namespace %s: %v", ns, err)
+		return err
+	}
+
+	defer func() {
+		if err := k8s.CoreV1().Namespaces().Delete(context.Background(), ns, metav1.DeleteOptions{}); err != nil {
+			logger.Errorf("failed to delete namespace %s: %v", ns, err)
+		}
+	}()
+
+	abcdName := fmt.Sprintf("abcd-test-map")
+	abcd := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "abcd.flanksource.com/v1",
+			"kind":       "ABCD",
+			"metadata": map[string]interface{}{
+				"name":      abcdName,
+				"namespace": ns,
+			},
+			"spec": map[string]interface{}{
+				"topicsMap": map[string]string{
+					"a1": "a2",
+					"b1": "b2",
+					"c1": "c2",
+					"d1": "d2",
+				},
+			},
+		},
+	}
+
+	if err := client.Apply(ns, abcd); err != nil {
+		test.Failf(testName, "failed to create test abcd: %v", err)
+		return err
+	}
+
+	defer func() {
+		if err := client.DeleteUnstructured(ns, abcd); err != nil {
+			logger.Errorf("failed to delete abcd %s: %v", abcdName, err)
+		}
+	}()
+
+	abcdTopics := map[string]string{
+		"a1": "a2",
+		"b1": "b2",
+		"c1": "c2",
+		"d1": "d2",
+	}
+	for k, v := range abcdTopics {
+		name := fmt.Sprintf("abcd-test-map-%s", k)
+		if err := waitForAbcdTopic(ctx, name, ns, map[string]string{k: v}); err != nil {
+			test.Failf(testName, "ABCD topic %s not found: %v", name, err)
+		} else {
+			test.Passf(testName, "ABCD topic %s found", name)
+		}
+	}
+
+	return nil
+}
+
 func waitForDeploymentChanged(ctx context.Context, deployment *appsv1.Deployment, fn deploymentFn) (*appsv1.Deployment, error) {
 	for {
 		d, err := k8s.AppsV1().Deployments(deployment.Namespace).Get(ctx, deployment.Name, metav1.GetOptions{})
@@ -522,6 +640,48 @@ func waitForPostgres(ctx context.Context, postgres *unstructured.Unstructured, t
 		expect(test, testName, "Work mem", ddb.Spec.Parameters["work_mem"], "475MB")
 		expect(test, testName, "Maintenance work mem", ddb.Spec.Parameters["maintenance_work_mem"], "634MB")
 
+		return nil
+	}
+}
+
+func waitForAbcdTopic(ctx context.Context, name, namespace string, spec map[string]string) error {
+	abcdTopic := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "abcd.flanksource.com/v1",
+			"kind":       "ABCDTopic",
+			"metadata": map[string]interface{}{
+				"name":      name,
+				"namespace": namespace,
+			},
+		},
+	}
+
+	for {
+		client, _, _, err := client.GetDynamicClientFor(namespace, abcdTopic)
+		if err != nil {
+			return errors.Wrap(err, "failed to get client for ABCDTopic")
+		}
+		topic, err := client.Get(ctx, name, metav1.GetOptions{})
+		if err != nil && !kerrors.IsNotFound(err) {
+			return errors.Wrapf(err, "failed to get abcd topic %s", name)
+		} else if kerrors.IsNotFound(err) {
+			time.Sleep(2 * time.Second)
+			continue
+		}
+
+		topicSpecYaml, err := yaml.Marshal(topic.Object["spec"])
+		if err != nil {
+			return errors.Wrap(err, "failed to marshal topic to yaml")
+		}
+
+		specYaml, err := yaml.Marshal(spec)
+		if err != nil {
+			return errors.Wrap(err, "failed to marshal spec to yaml")
+		}
+
+		if !expectYamlMatch(string(specYaml), string(topicSpecYaml)) {
+			return fmt.Errorf("Spec for ABCDTopic %s does not match", name)
+		}
 		return nil
 	}
 }
