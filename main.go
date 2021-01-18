@@ -29,6 +29,7 @@ import (
 	zaplogfmt "github.com/sykesm/zap-logfmt"
 	uzap "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+	"gopkg.in/yaml.v2"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
@@ -47,6 +48,8 @@ func init() {
 
 	_ = templatingflanksourcecomv1.AddToScheme(scheme)
 	// +kubebuilder:scaffold:scheme
+
+	yaml.FutureLineWrap()
 }
 
 func setupLogger(opts zap.Options) {
