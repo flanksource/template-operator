@@ -75,7 +75,8 @@ type JsonPatch struct {
 }
 
 type CopyToNamespaces struct {
-	Namespaces []string `json:"namespaces,omitempty"`
+	Namespaces        []string              `json:"namespaces,omitempty"`
+	NamespaceSelector *metav1.LabelSelector `json:"namespaceSelector,omitempty"`
 }
 
 // +kubebuilder:object:root=true
