@@ -19,6 +19,7 @@ require (
 	github.com/zalando/postgres-operator v1.6.0
 	go.uber.org/zap v1.15.0
 	gopkg.in/flanksource/yaml.v3 v3.1.1
+	gopkg.in/yaml.v2 v2.4.0
 	k8s.io/api v0.19.4
 	k8s.io/apiextensions-apiserver v0.19.4
 	k8s.io/apimachinery v0.19.4

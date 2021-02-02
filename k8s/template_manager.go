@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 	"text/template"
 
@@ -205,7 +206,12 @@ func (tm *TemplateManager) Run(ctx context.Context, template *templatev1.Templat
 		}
 
 		if template.Spec.CopyToNamespaces != nil {
-			for _, namespace := range template.Spec.CopyToNamespaces.Namespaces {
+			namespaces, err := tm.getNamespaces(ctx, *template.Spec.CopyToNamespaces)
+			if err != nil {
+				return errors.Wrap(err, "failed to get namespaces")
+			}
+
+			for _, namespace := range namespaces {
 				newResource := source.DeepCopy()
 				newResource.SetNamespace(namespace)
 				stripAnnotations(newResource)
@@ -355,6 +361,41 @@ func (tm *TemplateManager) getForEach(rawItem []byte, target map[string]interfac
 	}
 
 	return tm.JSONPath(target, fer.ForEach)
+}
+
+func (tm *TemplateManager) getNamespaces(ctx context.Context, copyToNamespaces templatev1.CopyToNamespaces) ([]string, error) {
+	namespaceMap := map[string]bool{}
+	namespaces := []string{}
+
+	for _, ns := range copyToNamespaces.Namespaces {
+		namespaceMap[ns] = true
+	}
+
+	if copyToNamespaces.NamespaceSelector != nil {
+		labelSelector, err := labelSelectorToString(*copyToNamespaces.NamespaceSelector)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to create label selector string")
+		}
+		options := metav1.ListOptions{
+			LabelSelector: labelSelector,
+		}
+		namespaceList, err := tm.CoreV1().Namespaces().List(ctx, options)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to list namespaces with label selector")
+		}
+
+		for _, ns := range namespaceList.Items {
+			namespaceMap[ns.Name] = true
+		}
+	}
+
+	for ns := range namespaceMap {
+		namespaces = append(namespaces, ns)
+	}
+
+	sort.Strings(namespaces)
+
+	return namespaces, nil
 }
 
 func (tm *TemplateManager) JSONPath(object interface{}, jsonpath string) (*ForEach, error) {
