@@ -209,6 +209,8 @@ github.com/flanksource/kommons v0.1.8 h1:TMw1eyi7j2xTOFdT1Jmfins70z2aPXJJ0lT1yev
 github.com/flanksource/kommons v0.1.8/go.mod h1:oaYRidwjSC8KULM861DMPFc8P64JkcA+GNBZkqpSsUY=
 github.com/flanksource/kommons v0.1.9 h1:o0jYg5M6yjT02NcjoyDBrDnPYhvfkS7IopNjLZUOLIw=
 github.com/flanksource/kommons v0.1.9/go.mod h1:oaYRidwjSC8KULM861DMPFc8P64JkcA+GNBZkqpSsUY=
+github.com/flanksource/kommons v0.3.0 h1:b3IBm1JaAfln8cWJkewk4DfzDIzUG5OotmPnX9Y8IGU=
+github.com/flanksource/kommons v0.3.0/go.mod h1:oaYRidwjSC8KULM861DMPFc8P64JkcA+GNBZkqpSsUY=
 github.com/flynn/go-shlex v0.0.0-20150515145356-3f9db97f8568 h1:BHsljHzVlRcyQhjrss6TZTdY2VfCqZPbv5k3iBFa2ZQ=
 github.com/flynn/go-shlex v0.0.0-20150515145356-3f9db97f8568/go.mod h1:xEzjJPgXI435gkrCt3MPfRiAkVrwSbHsst4LCFVfpJc=
 github.com/fortytw2/leaktest v1.2.0/go.mod h1:jDsjWgpAGjm2CA7WthBh/CdZYEPF31XHquHwclZch5g=

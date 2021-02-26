@@ -4,7 +4,7 @@ go 1.13
 
 require (
 	github.com/flanksource/commons v1.4.3
-	github.com/flanksource/kommons v0.1.9
+	github.com/flanksource/kommons v0.3.0
 	github.com/go-logr/logr v0.3.0
 	github.com/go-logr/zapr v0.3.0 // indirect
 	github.com/go-openapi/jsonpointer v0.19.3
@@ -13,6 +13,7 @@ require (
 	github.com/onsi/ginkgo v1.12.1
 	github.com/onsi/gomega v1.10.1
 	github.com/pkg/errors v0.9.1
+	github.com/prometheus/client_golang v1.7.1
 	github.com/sirupsen/logrus v1.7.0
 	github.com/sykesm/zap-logfmt v0.0.4
 	github.com/tidwall/gjson v1.6.7
