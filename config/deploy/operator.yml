@@ -351,6 +351,23 @@ subjects:
   name: template-operator-manager
   namespace: platform-system
 ---
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    prometheus.io/scrape: "true"
+  labels:
+    control-plane: template-operator
+  name: template-operator-template-operator
+  namespace: platform-system
+spec:
+  ports:
+  - name: prometheus
+    port: 8080
+    protocol: TCP
+  selector:
+    control-plane: template-operator
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -380,7 +397,7 @@ spec:
         - containerPort: 8443
           name: https
       - args:
-        - --metrics-addr=127.0.0.1:8080
+        - --metrics-addr=0.0.0.0:8080
         - --enable-leader-election
         - --sync-period=20s
         image: flanksource/template-operator:v1
@@ -388,9 +405,9 @@ spec:
         resources:
           limits:
             cpu: 100m
-            memory: 30Mi
+            memory: 130Mi
           requests:
             cpu: 100m
-            memory: 20Mi
+            memory: 120Mi
       serviceAccount: template-operator-manager
       terminationGracePeriodSeconds: 10

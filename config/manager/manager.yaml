@@ -30,9 +30,26 @@ spec:
           resources:
             limits:
               cpu: 100m
-              memory: 30Mi
+              memory: 130Mi
             requests:
               cpu: 100m
-              memory: 20Mi
+              memory: 120Mi
       terminationGracePeriodSeconds: 10
       serviceAccount: template-operator-manager
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: template-operator
+  namespace: platform-system
+  annotations:
+    prometheus.io/scrape: "true"
+  labels:
+    control-plane: template-operator
+spec:
+  selector:
+    control-plane: template-operator
+  ports:
+    - name: prometheus
+      protocol: TCP
+      port: 8080
