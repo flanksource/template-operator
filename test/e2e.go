@@ -49,6 +49,8 @@ var (
 		"awx-operator":                 TestAwxOperator,
 		"for-each-array":               TestForEachWithArray,
 		"for-each-map":                 TestForEachWithMap,
+		"when-true":                    TestWhenConditional,
+		"when-false":                   TestWhenConditionalFalse,
 	}
 	scheme              = runtime.NewScheme()
 	restConfig          *rest.Config
@@ -506,6 +508,121 @@ func TestForEachWithMap(ctx context.Context, test *console.TestResults) error {
 	return nil
 }
 
+func TestWhenConditional(ctx context.Context, test *console.TestResults) error {
+	testName := "TestWhenConditional"
+	ns := fmt.Sprintf("test-when-e2e-%s", utils.RandomString(6))
+	if err := client.CreateOrUpdateNamespace(ns, nil, nil); err != nil {
+		test.Failf(testName, "failed to create namespace %s: %v", ns, err)
+		return err
+	}
+
+	defer func() {
+		if err := k8s.CoreV1().Namespaces().Delete(context.Background(), ns, metav1.DeleteOptions{}); err != nil {
+			logger.Errorf("failed to delete namespace %s: %v", ns, err)
+		}
+	}()
+
+	appName := fmt.Sprintf("app-test-when")
+	app := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "example.flanksource.com/v1",
+			"kind":       "App",
+			"metadata": map[string]interface{}{
+				"name":      appName,
+				"namespace": ns,
+			},
+			"spec": map[string]interface{}{
+				"image":         "nginx",
+				"exposeService": true,
+			},
+		},
+	}
+
+	if err := client.Apply(ns, app); err != nil {
+		test.Failf(testName, "failed to create test app: %v", err)
+		return err
+	}
+
+	defer func() {
+		if err := client.DeleteUnstructured(ns, app); err != nil {
+			logger.Errorf("failed to delete app %s: %v", appName, err)
+		}
+	}()
+
+	if _, err := waitForDeployment(ctx, appName, ns); err != nil {
+		test.Failf(testName, "Deployment %s not found: %v", appName, err)
+	} else {
+		test.Passf(testName, "Deployment %s found", appName)
+	}
+
+	if _, err := waitForService(ctx, appName, ns); err != nil {
+		test.Failf(testName, "Service %s not found: %v", appName, err)
+	} else {
+		test.Passf(testName, "Service %s found", appName)
+	}
+
+	return nil
+}
+
+func TestWhenConditionalFalse(ctx context.Context, test *console.TestResults) error {
+	testName := "TestWhenConditionalFalse"
+	ns := fmt.Sprintf("test-when-e2e-%s", utils.RandomString(6))
+	if err := client.CreateOrUpdateNamespace(ns, nil, nil); err != nil {
+		test.Failf(testName, "failed to create namespace %s: %v", ns, err)
+		return err
+	}
+
+	defer func() {
+		if err := k8s.CoreV1().Namespaces().Delete(context.Background(), ns, metav1.DeleteOptions{}); err != nil {
+			logger.Errorf("failed to delete namespace %s: %v", ns, err)
+		}
+	}()
+
+	appName := fmt.Sprintf("app-test-when")
+	app := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "example.flanksource.com/v1",
+			"kind":       "App",
+			"metadata": map[string]interface{}{
+				"name":      appName,
+				"namespace": ns,
+			},
+			"spec": map[string]interface{}{
+				"image":         "nginx",
+				"exposeService": false,
+			},
+		},
+	}
+
+	if err := client.Apply(ns, app); err != nil {
+		test.Failf(testName, "failed to create test app: %v", err)
+		return err
+	}
+
+	defer func() {
+		if err := client.DeleteUnstructured(ns, app); err != nil {
+			logger.Errorf("failed to delete app %s: %v", appName, err)
+		}
+	}()
+
+	if _, err := waitForDeployment(ctx, appName, ns); err != nil {
+		test.Failf(testName, "Deployment %s not found: %v", appName, err)
+	} else {
+		test.Passf(testName, "Deployment %s found", appName)
+	}
+
+	_, err := k8s.CoreV1().Services(ns).Get(ctx, appName, metav1.GetOptions{})
+	if err == nil {
+		test.Failf(testName, "Service %s was created", appName)
+	} else if !kerrors.IsNotFound(err) {
+		test.Failf(testName, "Error getting service %s", appName)
+	} else {
+		test.Passf(testName, "Service %s was not created", appName)
+	}
+
+	return nil
+}
+
 func waitForDeploymentChanged(ctx context.Context, deployment *appsv1.Deployment, fn deploymentFn) (*appsv1.Deployment, error) {
 	for {
 		d, err := k8s.AppsV1().Deployments(deployment.Namespace).Get(ctx, deployment.Name, metav1.GetOptions{})
@@ -532,6 +649,32 @@ func waitForSecret(ctx context.Context, name, namespace string) (*v1.Secret, err
 			continue
 		}
 		return secret, nil
+	}
+}
+
+func waitForDeployment(ctx context.Context, name, namespace string) (*appsv1.Deployment, error) {
+	for {
+		deployment, err := k8s.AppsV1().Deployments(namespace).Get(ctx, name, metav1.GetOptions{})
+		if err != nil && !kerrors.IsNotFound(err) {
+			return nil, errors.Wrapf(err, "failed to get deployment %s in namespace %s", name, namespace)
+		} else if kerrors.IsNotFound(err) {
+			time.Sleep(2 * time.Second)
+			continue
+		}
+		return deployment, nil
+	}
+}
+
+func waitForService(ctx context.Context, name, namespace string) (*v1.Service, error) {
+	for {
+		svc, err := k8s.CoreV1().Services(namespace).Get(ctx, name, metav1.GetOptions{})
+		if err != nil && !kerrors.IsNotFound(err) {
+			return nil, errors.Wrapf(err, "failed to get service %s in namespace %s", name, namespace)
+		} else if kerrors.IsNotFound(err) {
+			time.Sleep(2 * time.Second)
+			continue
+		}
+		return svc, nil
 	}
 }
 

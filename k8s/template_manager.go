@@ -50,6 +50,10 @@ type ResourcePatch struct {
 	PatchType  PatchType
 }
 
+type Conditionals struct {
+	When string `json:"when"`
+}
+
 type ForEachResource struct {
 	ForEach string `json:"forEach"`
 }
@@ -305,6 +309,14 @@ func (tm *TemplateManager) getObjects(rawItem []byte, target map[string]interfac
 		return nil, errors.Wrap(err, "failed to unmarshal target copy")
 	}
 
+	conditional, err := tm.conditional(rawItem, target)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to get conditional")
+	}
+	if !conditional {
+		return []unstructured.Unstructured{}, nil
+	}
+
 	forEach, err := tm.getForEach(rawItem, target)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get forEach")
@@ -374,6 +386,19 @@ func (tm *TemplateManager) getForEach(rawItem []byte, target map[string]interfac
 	return tm.JSONPath(target, fer.ForEach)
 }
 
+func (tm *TemplateManager) conditional(rawItem []byte, target map[string]interface{}) (bool, error) {
+	conditional := &Conditionals{}
+	if err := json.Unmarshal(rawItem, conditional); err != nil {
+		return false, errors.Wrap(err, "failed to unmarshal rawItem into Conditionals")
+	}
+
+	if conditional.When == "" {
+		return true, nil
+	}
+
+	return tm.GetBool(target, conditional.When)
+}
+
 func (tm *TemplateManager) getNamespaces(ctx context.Context, copyToNamespaces templatev1.CopyToNamespaces) ([]string, error) {
 	namespaceMap := map[string]bool{}
 	namespaces := []string{}
@@ -441,6 +466,24 @@ func (tm *TemplateManager) JSONPath(object interface{}, jsonpath string) (*ForEa
 	}
 
 	return nil, errors.Errorf("field %s is not map or array", jsonpath)
+}
+
+func (tm *TemplateManager) GetBool(object interface{}, jsonpath string) (bool, error) {
+	jsonpath = strings.TrimPrefix(jsonpath, "{{")
+	jsonpath = strings.TrimSuffix(jsonpath, "}}")
+	jsonpath = strings.TrimPrefix(jsonpath, ".")
+	jsonObject, err := json.Marshal(object)
+	if err != nil {
+		return false, errors.Wrap(err, "failed to marshal json")
+	}
+
+	value := gjson.Get(string(jsonObject), jsonpath)
+
+	if !value.Exists() {
+		return false, errors.Wrapf(err, "failed to find path %s", jsonpath)
+	}
+
+	return value.Bool(), nil
 }
 
 func labelSelectorToString(l metav1.LabelSelector) (string, error) {
