@@ -23,6 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/yaml"
 )
 
@@ -38,6 +39,7 @@ type TemplateManager struct {
 	PatchApplier  *PatchApplier
 	SchemaManager *SchemaManager
 	FuncMap       template.FuncMap
+	Events        record.EventRecorder
 }
 
 type ResourcePatch struct {
@@ -46,6 +48,10 @@ type ResourcePatch struct {
 	Kind       string
 	APIVersion string
 	PatchType  PatchType
+}
+
+type Conditionals struct {
+	When string `json:"when"`
 }
 
 type ForEachResource struct {
@@ -59,7 +65,7 @@ type ForEach struct {
 	Map     map[string]interface{}
 }
 
-func NewTemplateManager(c *kommons.Client, log logr.Logger, cache *SchemaCache) (*TemplateManager, error) {
+func NewTemplateManager(c *kommons.Client, log logr.Logger, cache *SchemaCache, events record.EventRecorder) (*TemplateManager, error) {
 	clientset, _ := c.GetClientset()
 
 	restConfig, err := c.GetRESTConfig()
@@ -87,6 +93,7 @@ func NewTemplateManager(c *kommons.Client, log logr.Logger, cache *SchemaCache) 
 		Client:        c,
 		Interface:     clientset,
 		Log:           log,
+		Events:        events,
 		PatchApplier:  patchApplier,
 		SchemaManager: schemaManager,
 		FuncMap:       functions.FuncMap(),
@@ -156,16 +163,19 @@ func (tm *TemplateManager) Run(ctx context.Context, template *templatev1.Templat
 
 	for _, source := range sources {
 		target := &source
+
 		if !template.Spec.Onceoff || !alreadyApplied(template, *target) {
 			for _, patch := range template.Spec.Patches {
 				target, err = tm.PatchApplier.Apply(target, patch, PatchTypeYaml)
 				if err != nil {
+					tm.Events.Eventf(&source, v1.EventTypeWarning, "Failed", "Failed to apply patch")
 					return err
 				}
 			}
 			for _, patch := range template.Spec.JsonPatches {
 				target, err = tm.PatchApplier.Apply(target, patch.Patch, PatchTypeJSON)
 				if err != nil {
+					tm.Events.Eventf(&source, v1.EventTypeWarning, "Failed", "Failed to apply patch")
 					return err
 				}
 			}
@@ -173,6 +183,7 @@ func (tm *TemplateManager) Run(ctx context.Context, template *templatev1.Templat
 				target = markApplied(template, target)
 				stripAnnotations(target)
 				if err := tm.Client.ApplyUnstructured(source.GetNamespace(), target); err != nil {
+					tm.Events.Eventf(&source, v1.EventTypeWarning, "Failed", "Failed to apply object")
 					return err
 				}
 			}
@@ -181,6 +192,7 @@ func (tm *TemplateManager) Run(ctx context.Context, template *templatev1.Templat
 		for _, item := range template.Spec.Resources {
 			objs, err := tm.getObjects(item.Raw, target.Object)
 			if err != nil {
+				tm.Events.Eventf(&source, v1.EventTypeWarning, "Failed", "Failed to get objects")
 				return err
 			}
 
@@ -200,6 +212,7 @@ func (tm *TemplateManager) Run(ctx context.Context, template *templatev1.Templat
 					tm.Log.Info("Applying", "kind", obj.GetKind(), "namespace", obj.GetNamespace(), "name", obj.GetName())
 				}
 				if err := tm.Client.ApplyUnstructured(obj.GetNamespace(), &obj); err != nil {
+					tm.Events.Eventf(&source, v1.EventTypeWarning, "Failed", "Failed to apply new resource kind=%s name=%s", obj.GetKind(), obj.GetName())
 					return err
 				}
 			}
@@ -208,6 +221,7 @@ func (tm *TemplateManager) Run(ctx context.Context, template *templatev1.Templat
 		if template.Spec.CopyToNamespaces != nil {
 			namespaces, err := tm.getNamespaces(ctx, *template.Spec.CopyToNamespaces)
 			if err != nil {
+				tm.Events.Eventf(&source, v1.EventTypeWarning, "Failed", "Failed to get namespaces")
 				return errors.Wrap(err, "failed to get namespaces")
 			}
 
@@ -225,6 +239,7 @@ func (tm *TemplateManager) Run(ctx context.Context, template *templatev1.Templat
 				}
 
 				if err := tm.Client.ApplyUnstructured(newResource.GetNamespace(), newResource); err != nil {
+					tm.Events.Eventf(&source, v1.EventTypeWarning, "Failed", "Failed to copy to namespace %s", namespace)
 					return err
 				}
 			}
@@ -292,6 +307,14 @@ func (tm *TemplateManager) getObjects(rawItem []byte, target map[string]interfac
 	targetCopy := map[string]interface{}{}
 	if err := json.Unmarshal(j, &targetCopy); err != nil {
 		return nil, errors.Wrap(err, "failed to unmarshal target copy")
+	}
+
+	conditional, err := tm.conditional(rawItem, target)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to get conditional")
+	}
+	if !conditional {
+		return []unstructured.Unstructured{}, nil
 	}
 
 	forEach, err := tm.getForEach(rawItem, target)
@@ -363,6 +386,19 @@ func (tm *TemplateManager) getForEach(rawItem []byte, target map[string]interfac
 	return tm.JSONPath(target, fer.ForEach)
 }
 
+func (tm *TemplateManager) conditional(rawItem []byte, target map[string]interface{}) (bool, error) {
+	conditional := &Conditionals{}
+	if err := json.Unmarshal(rawItem, conditional); err != nil {
+		return false, errors.Wrap(err, "failed to unmarshal rawItem into Conditionals")
+	}
+
+	if conditional.When == "" {
+		return true, nil
+	}
+
+	return tm.GetBool(target, conditional.When)
+}
+
 func (tm *TemplateManager) getNamespaces(ctx context.Context, copyToNamespaces templatev1.CopyToNamespaces) ([]string, error) {
 	namespaceMap := map[string]bool{}
 	namespaces := []string{}
@@ -430,6 +466,24 @@ func (tm *TemplateManager) JSONPath(object interface{}, jsonpath string) (*ForEa
 	}
 
 	return nil, errors.Errorf("field %s is not map or array", jsonpath)
+}
+
+func (tm *TemplateManager) GetBool(object interface{}, jsonpath string) (bool, error) {
+	jsonpath = strings.TrimPrefix(jsonpath, "{{")
+	jsonpath = strings.TrimSuffix(jsonpath, "}}")
+	jsonpath = strings.TrimPrefix(jsonpath, ".")
+	jsonObject, err := json.Marshal(object)
+	if err != nil {
+		return false, errors.Wrap(err, "failed to marshal json")
+	}
+
+	value := gjson.Get(string(jsonObject), jsonpath)
+
+	if !value.Exists() {
+		return false, errors.Wrapf(err, "failed to find path %s", jsonpath)
+	}
+
+	return value.Bool(), nil
 }
 
 func labelSelectorToString(l metav1.LabelSelector) (string, error) {

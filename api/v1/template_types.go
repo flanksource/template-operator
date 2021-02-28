@@ -55,7 +55,6 @@ type TemplateStatus struct {
 }
 
 type ResourceSelector struct {
-	ForEach            string               `json:"forEach,omitempty"`
 	LabelSelector      metav1.LabelSelector `json:"labelSelector,omitempty"`
 	NamespaceSelector  metav1.LabelSelector `json:"namespaceSelector,omitempty"`
 	AnnotationSelector map[string]string    `json:"annotationSelector,omitempty"`

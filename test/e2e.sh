@@ -46,6 +46,7 @@ $KARINA deploy postgres-operator
 kubectl apply -f examples/postgres-operator.yml
 kubectl apply -f examples/namespacerequest.yml
 kubectl apply -f examples/for-each.yml
+kubectl apply -f examples/when.yaml
 kubectl apply -f test/fixtures/awx-operator.yml
 
 export IMG=flanksource/template-operator:v1

@@ -70,8 +70,9 @@ spec:
   synchronous_mode: false
 `
 
+			eventsRecorder := &TestEventRecorder{}
 			cache := k8s.NewSchemaCache(clientset(), 5*time.Minute, testLog)
-			templateManager, err := k8s.NewTemplateManager(kommonsClient(), testLog, cache)
+			templateManager, err := k8s.NewTemplateManager(kommonsClient(), testLog, cache, eventsRecorder)
 			Expect(err).ToNot(HaveOccurred())
 
 			result, err := templateManager.Template([]byte(templateJSON), db)
