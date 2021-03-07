@@ -242,6 +242,20 @@ func (m *SchemaManager) FindTypeForKeyFromSchema(schema *spec.Schema, key string
 		return nil, errors.Wrapf(err, "failed to find type for key %s", key)
 	}
 
+	if len(fieldSchema.Type) == 0 && fieldSchema.Format == "" {
+		types := []string{}
+		format := ""
+		for _, sc := range fieldSchema.AnyOf {
+			if len(sc.Type) > 0 {
+				types = append(types, sc.Type...)
+			}
+			if sc.Format != "" && format == "" {
+				format = sc.Format
+			}
+		}
+		return &TypedField{Types: types, Format: format}, nil
+	}
+
 	typedField := &TypedField{Types: fieldSchema.Type, Format: fieldSchema.Format}
 	return typedField, nil
 }
