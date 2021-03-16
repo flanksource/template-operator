@@ -93,6 +93,9 @@ func main() {
 	}
 
 	client := kommons.NewClient(mgr.GetConfig(), logger.StandardLogger())
+	client.GetKustomizePatches = func() ([]string, error) {
+		return []string{}, nil
+	}
 	clientset, err := client.GetClientset()
 	if err != nil {
 		setupLog.Error(err, "failed to get clientset")

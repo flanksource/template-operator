@@ -100,6 +100,9 @@ func main() {
 	}
 
 	client = kommons.NewClient(restConfig, logger.StandardLogger())
+	client.GetKustomizePatches = func() ([]string, error) {
+		return []string{}, nil
+	}
 
 	crdK8s, err = crdclient.New(restConfig, crdclient.Options{Scheme: scheme, Mapper: mapper})
 	if err != nil {
