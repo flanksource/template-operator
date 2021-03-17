@@ -240,6 +240,7 @@ func (tm *TemplateManager) Run(ctx context.Context, template *templatev1.Templat
 				newResource := source.DeepCopy()
 				newResource.SetNamespace(namespace)
 				stripAnnotations(newResource)
+				kommons.StripIdentifiers(newResource)
 
 				crossNamespaceOwner(newResource, source)
 
