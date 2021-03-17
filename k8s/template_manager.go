@@ -189,6 +189,8 @@ func (tm *TemplateManager) Run(ctx context.Context, template *templatev1.Templat
 			}
 		}
 
+		isSourceReady := true
+
 		for _, item := range template.Spec.Resources {
 			objs, err := tm.getObjects(item.Raw, target.Object)
 			if err != nil {
@@ -201,19 +203,28 @@ func (tm *TemplateManager) Run(ctx context.Context, template *templatev1.Templat
 				if source.GetNamespace() == obj.GetNamespace() {
 					obj.SetOwnerReferences([]metav1.OwnerReference{{APIVersion: source.GetAPIVersion(), Kind: source.GetKind(), Name: source.GetName(), UID: source.GetUID()}})
 				} else {
-					crossNamespaceOwner(&obj, source)
+					crossNamespaceOwner(obj, source)
 				}
 
-				stripAnnotations(&obj)
+				stripAnnotations(obj)
 
 				if tm.Log.V(2).Enabled() {
 					tm.Log.V(2).Info("Applying", "kind", obj.GetKind(), "namespace", obj.GetNamespace(), "name", obj.GetName(), "obj", obj)
 				} else {
 					tm.Log.Info("Applying", "kind", obj.GetKind(), "namespace", obj.GetNamespace(), "name", obj.GetName())
 				}
-				if err := tm.Client.ApplyUnstructured(obj.GetNamespace(), &obj); err != nil {
+				if err := tm.Client.ApplyUnstructured(obj.GetNamespace(), obj); err != nil {
 					tm.Events.Eventf(&source, v1.EventTypeWarning, "Failed", "Failed to apply new resource kind=%s name=%s", obj.GetKind(), obj.GetName())
 					return err
+				}
+
+				if isReady, msg, err := tm.isResourceReady(obj); err != nil {
+					return errors.Wrap(err, "failed to check if resource is ready")
+				} else if !isReady {
+					tm.Log.Info("resource is not ready", "kind", obj.GetKind(), "name", obj.GetName(), "namespace", obj.GetNamespace(), "message", msg)
+					isSourceReady = false
+				} else {
+					tm.Log.Info("resource is ready", "kind", obj.GetKind(), "name", obj.GetName(), "namespace", obj.GetNamespace(), "message", msg)
 				}
 			}
 		}
@@ -242,6 +253,20 @@ func (tm *TemplateManager) Run(ctx context.Context, template *templatev1.Templat
 					tm.Events.Eventf(&source, v1.EventTypeWarning, "Failed", "Failed to copy to namespace %s", namespace)
 					return err
 				}
+
+				if isReady, msg, err := tm.isResourceReady(newResource); err != nil {
+					return errors.Wrap(err, "failed to check if resource is ready")
+				} else if !isReady {
+					tm.Log.Info("resource is not ready", "kind", newResource.GetKind(), "name", newResource.GetName(), "namespace", newResource.GetNamespace(), "message", msg)
+					isSourceReady = false
+				}
+			}
+		}
+
+		if isSourceReady {
+			conditionName := fmt.Sprintf("template-%s", template.GetName())
+			if err := tm.Client.SetCondition(&source, conditionName, "Ready"); err != nil {
+				tm.Log.Error(err, "failed to set Ready condition on resource", "kind", source.GetKind(), "name", source.GetName(), "namespace", source.GetNamespace())
 			}
 		}
 	}
@@ -299,7 +324,20 @@ func (tm *TemplateManager) duckTypeTemplateResult(objYaml []byte) ([]byte, error
 	return yaml.Marshal(&obj.Object)
 }
 
-func (tm *TemplateManager) getObjects(rawItem []byte, target map[string]interface{}) ([]unstructured.Unstructured, error) {
+func (tm *TemplateManager) isResourceReady(item *unstructured.Unstructured) (bool, string, error) {
+	if tm.Client.IsTrivialType(item) {
+		return true, "", nil
+	}
+
+	refreshed, err := tm.Client.Refresh(item)
+	if err != nil {
+		return false, "", errors.Wrap(err, "failed to refresh object")
+	}
+	isReady, msg := tm.Client.IsReady(refreshed)
+	return isReady, msg, nil
+}
+
+func (tm *TemplateManager) getObjects(rawItem []byte, target map[string]interface{}) ([]*unstructured.Unstructured, error) {
 	j, err := json.Marshal(target)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to marshal target")
@@ -314,7 +352,7 @@ func (tm *TemplateManager) getObjects(rawItem []byte, target map[string]interfac
 		return nil, errors.Wrap(err, "failed to get conditional")
 	}
 	if !conditional {
-		return []unstructured.Unstructured{}, nil
+		return []*unstructured.Unstructured{}, nil
 	}
 
 	forEach, err := tm.getForEach(rawItem, target)
@@ -335,7 +373,7 @@ func (tm *TemplateManager) getObjects(rawItem []byte, target map[string]interfac
 		return objs, nil
 	}
 
-	objs := []unstructured.Unstructured{}
+	objs := []*unstructured.Unstructured{}
 
 	if forEach.IsArray {
 		for _, e := range forEach.Array {
