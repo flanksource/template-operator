@@ -697,6 +697,7 @@ func waitForPostgresqlDB(ctx context.Context, postgresqlDB *unstructured.Unstruc
 		}
 
 		// db.SetManagedFields([]metav1.ManagedFieldsEntry{})
+		unstructured.RemoveNestedField(db.Object, "creationTimestamp")
 		db.SetManagedFields(nil)
 		db.SetSelfLink("")
 		db.SetUID("")
@@ -732,6 +733,7 @@ spec:
     storageClass: local-path
 `
 		if !expectYamlMatch(expectedYamlTemplate, string(yml), name, name) {
+			test.Errorf("Expected postgresql template to match:\nExpected:\n%s\nFound:\n%s\n", expectedYamlTemplate, string(yml))
 			test.Failf(testName, "postgresqlDB does not match")
 			return errors.Errorf("postgresqlDB does not match")
 		}
