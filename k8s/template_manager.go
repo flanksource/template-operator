@@ -224,7 +224,7 @@ func (tm *TemplateManager) Run(ctx context.Context, template *templatev1.Templat
 					tm.Log.Info("resource is not ready", "kind", obj.GetKind(), "name", obj.GetName(), "namespace", obj.GetNamespace(), "message", msg)
 					isSourceReady = false
 				} else {
-					tm.Log.Info("resource is ready", "kind", obj.GetKind(), "name", obj.GetName(), "namespace", obj.GetNamespace(), "message", msg)
+					tm.Log.V(2).Info("resource is ready", "kind", obj.GetKind(), "name", obj.GetName(), "namespace", obj.GetNamespace(), "message", msg)
 				}
 			}
 		}
