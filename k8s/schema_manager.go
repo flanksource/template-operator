@@ -420,19 +420,19 @@ func (m *SchemaManager) getDefinitionName(gvk schema.GroupVersionKind) string {
 func transformStringToType(value string, fieldType *TypedField) (interface{}, error) {
 	switch fieldType.Format {
 	case "int8":
-		return strconv.ParseInt(value, 10, 8)
+		return strconv.ParseInt(stringToIntDefault(value), 10, 8)
 	case "int32":
-		return strconv.Atoi(value)
+		return strconv.Atoi(stringToIntDefault(value))
 	case "int64":
-		return strconv.ParseInt(value, 10, 64)
+		return strconv.ParseInt(stringToIntDefault(value), 10, 64)
 	case "uint8":
-		return strconv.ParseUint(value, 10, 8)
+		return strconv.ParseUint(stringToIntDefault(value), 10, 8)
 	case "uint32":
-		return strconv.ParseUint(value, 10, 32)
+		return strconv.ParseUint(stringToIntDefault(value), 10, 32)
 	case "uint64":
-		return strconv.ParseUint(value, 10, 64)
+		return strconv.ParseUint(stringToIntDefault(value), 10, 64)
 	case "double":
-		return strconv.ParseFloat(value, 64)
+		return strconv.ParseFloat(stringToIntDefault(value), 64)
 	case "byte":
 		return []byte(value), nil
 	}
@@ -607,4 +607,11 @@ func isNil(i interface{}) bool {
 		return reflect.ValueOf(i).IsNil()
 	}
 	return false
+}
+
+func stringToIntDefault(str string) string {
+	if str == "" {
+		return "0"
+	}
+	return str
 }
