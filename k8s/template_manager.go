@@ -264,11 +264,14 @@ func (tm *TemplateManager) Run(ctx context.Context, template *templatev1.Templat
 			}
 		}
 
+		conditionName := fmt.Sprintf("template-%s", template.GetName())
+		conditionValue := "NotReady"
 		if isSourceReady {
-			conditionName := fmt.Sprintf("template-%s", template.GetName())
-			if err := tm.Client.SetCondition(&source, conditionName, "Ready"); err != nil {
-				tm.Log.Error(err, "failed to set Ready condition on resource", "kind", source.GetKind(), "name", source.GetName(), "namespace", source.GetNamespace())
-			}
+			conditionValue = "Ready"
+		}
+		tm.Log.V(2).Info("setting condition on item", "condition", conditionName, "status", conditionValue, "name", source.GetName(), "namespace", source.GetName(), "kind", source.GetKind())
+		if err := tm.Client.SetCondition(&source, conditionName, conditionValue); err != nil {
+			tm.Log.Error(err, "failed to set condition on resource", "kind", source.GetKind(), "name", source.GetName(), "namespace", source.GetNamespace(), "conditionValue", conditionValue)
 		}
 	}
 	return nil
