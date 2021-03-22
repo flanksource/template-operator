@@ -242,6 +242,10 @@ func (m *SchemaManager) FindTypeForKeyFromSchema(schema *spec.Schema, key string
 		return nil, errors.Wrapf(err, "failed to find type for key %s", key)
 	}
 
+	if fieldSchema == nil {
+		return nil, nil
+	}
+
 	if len(fieldSchema.Type) == 0 && fieldSchema.Format == "" {
 		types := []string{}
 		format := ""
@@ -268,6 +272,8 @@ func (m *SchemaManager) findTypeForKey(schema *spec.Schema, key string) (*spec.S
 	if !found {
 		if schema.Type.Contains("object") && schema.AdditionalProperties != nil && schema.AdditionalProperties.Schema != nil {
 			fieldSchema = *schema.AdditionalProperties.Schema
+		} else if schema.Type.Contains("object") {
+			return nil, nil
 		} else {
 			return nil, errors.Errorf("failed to find property %s", fieldName)
 		}
@@ -418,6 +424,10 @@ func (m *SchemaManager) getDefinitionName(gvk schema.GroupVersionKind) string {
 }
 
 func transformStringToType(value string, fieldType *TypedField) (interface{}, error) {
+	if fieldType == nil {
+		return value, nil
+	}
+
 	switch fieldType.Format {
 	case "int8":
 		return strconv.ParseInt(stringToIntDefault(value), 10, 8)
@@ -462,6 +472,10 @@ func transformStringToType(value string, fieldType *TypedField) (interface{}, er
 }
 
 func transformFloatToType(value float64, fieldType *TypedField) (interface{}, error) {
+	if fieldType == nil {
+		return value, nil
+	}
+
 	switch fieldType.Format {
 	case "int8":
 		return strconv.ParseInt(strconv.FormatInt(int64(value), 10), 10, 8)
@@ -493,6 +507,10 @@ func transformFloatToType(value float64, fieldType *TypedField) (interface{}, er
 }
 
 func transformInt64ToType(value int64, fieldType *TypedField) (interface{}, error) {
+	if fieldType == nil {
+		return value, nil
+	}
+
 	switch fieldType.Format {
 	case "int8":
 		return strconv.ParseInt(strconv.FormatInt(value, 10), 10, 8)
@@ -526,6 +544,10 @@ func transformInt64ToType(value int64, fieldType *TypedField) (interface{}, erro
 }
 
 func transformUint64ToType(value uint64, fieldType *TypedField) (interface{}, error) {
+	if fieldType == nil {
+		return value, nil
+	}
+
 	switch fieldType.Format {
 	case "int8":
 		return strconv.ParseInt(strconv.FormatUint(value, 10), 10, 8)
@@ -559,6 +581,10 @@ func transformUint64ToType(value uint64, fieldType *TypedField) (interface{}, er
 }
 
 func transformBytesToType(value []byte, fieldType *TypedField) (interface{}, error) {
+	if fieldType == nil {
+		return value, nil
+	}
+
 	if fieldType.Format == "byte" {
 		return value, nil
 	}
@@ -571,6 +597,10 @@ func transformBytesToType(value []byte, fieldType *TypedField) (interface{}, err
 }
 
 func transformBoolToType(value bool, fieldType *TypedField) (interface{}, error) {
+	if fieldType == nil {
+		return value, nil
+	}
+
 	if contains(fieldType.Types, "boolean") {
 		return value, nil
 	}
