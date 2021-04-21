@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"text/template"
 
@@ -438,7 +439,17 @@ func (tm *TemplateManager) conditional(rawItem []byte, target map[string]interfa
 		return true, nil
 	}
 
-	return tm.GetBool(target, conditional.When)
+	tpl, err := template.New("").Funcs(tm.FuncMap).Parse(conditional.When)
+	if err != nil {
+		return false, fmt.Errorf("invalid template %s: %v", conditional.When, err)
+	}
+
+	var buf bytes.Buffer
+	if err := tpl.Execute(&buf, target); err != nil {
+		return false, fmt.Errorf("error executing template %s: %v", conditional.When, err)
+	}
+
+	return strconv.ParseBool(buf.String())
 }
 
 func (tm *TemplateManager) getNamespaces(ctx context.Context, copyToNamespaces templatev1.CopyToNamespaces) ([]string, error) {
@@ -508,24 +519,6 @@ func (tm *TemplateManager) JSONPath(object interface{}, jsonpath string) (*ForEa
 	}
 
 	return nil, errors.Errorf("field %s is not map or array", jsonpath)
-}
-
-func (tm *TemplateManager) GetBool(object interface{}, jsonpath string) (bool, error) {
-	jsonpath = strings.TrimPrefix(jsonpath, "{{")
-	jsonpath = strings.TrimSuffix(jsonpath, "}}")
-	jsonpath = strings.TrimPrefix(jsonpath, ".")
-	jsonObject, err := json.Marshal(object)
-	if err != nil {
-		return false, errors.Wrap(err, "failed to marshal json")
-	}
-
-	value := gjson.Get(string(jsonObject), jsonpath)
-
-	if !value.Exists() {
-		return false, errors.Wrapf(err, "failed to find path %s", jsonpath)
-	}
-
-	return value.Bool(), nil
 }
 
 func labelSelectorToString(l metav1.LabelSelector) (string, error) {
