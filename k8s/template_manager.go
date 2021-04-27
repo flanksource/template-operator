@@ -215,7 +215,7 @@ func (tm *TemplateManager) Run(ctx context.Context, template *templatev1.Templat
 					tm.Log.Info("Applying", "kind", obj.GetKind(), "namespace", obj.GetNamespace(), "name", obj.GetName())
 				}
 				if err := tm.Client.ApplyUnstructured(obj.GetNamespace(), obj); err != nil {
-					tm.Events.Eventf(&source, v1.EventTypeWarning, "Failed", "Failed to apply new resource kind=%s name=%s", obj.GetKind(), obj.GetName())
+					tm.Events.Eventf(&source, v1.EventTypeWarning, "Failed", "Failed to apply new resource kind=%s name=%s err=%v", obj.GetKind(), obj.GetName(), err)
 					return err
 				}
 
