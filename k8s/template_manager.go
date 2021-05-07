@@ -224,21 +224,18 @@ func (tm *TemplateManager) Run(ctx context.Context, template *templatev1.Templat
 			} else {
 				tm.Log.Info("Applying", "kind", obj.GetKind(), "namespace", obj.GetNamespace(), "name", obj.GetName())
 			}
-			// creating a copy of the object without depends and id attribute so there is no problem while creating these resources
-			// Not striping these attributes in the original object as in that case the next reconcile loop will cause a problem
-			newObj := getObjWithoutDependsAndId(obj)
-			if err := tm.Client.ApplyUnstructured(newObj.GetNamespace(), newObj); err != nil {
-				tm.Events.Eventf(&source, v1.EventTypeWarning, "Failed", "Failed to apply new resource kind=%s name=%s err=%v", newObj.GetKind(), newObj.GetName(), err)
+			if err := tm.Client.ApplyUnstructured(obj.GetNamespace(), &obj); err != nil {
+				tm.Events.Eventf(&source, v1.EventTypeWarning, "Failed", "Failed to apply new resource kind=%s name=%s err=%v", obj.GetKind(), obj.GetName(), err)
 				return err
 			}
 
-			if isReady, msg, err := tm.isResourceReady(newObj); err != nil {
+			if isReady, msg, err := tm.isResourceReady(&obj); err != nil {
 				return errors.Wrap(err, "failed to check if resource is ready")
 			} else if !isReady {
-				tm.Log.Info("resource is not ready", "kind", newObj.GetKind(), "name", newObj.GetName(), "namespace", newObj.GetNamespace(), "message", msg)
+				tm.Log.Info("resource is not ready", "kind", obj.GetKind(), "name", obj.GetName(), "namespace", obj.GetNamespace(), "message", msg)
 				isSourceReady = false
 			} else {
-				tm.Log.V(2).Info("resource is ready", "kind", newObj.GetKind(), "name", newObj.GetName(), "namespace", newObj.GetNamespace(), "message", msg)
+				tm.Log.V(2).Info("resource is ready", "kind", obj.GetKind(), "name", obj.GetName(), "namespace", obj.GetNamespace(), "message", msg)
 			}
 		}
 
@@ -596,12 +593,6 @@ func getDependsOnIds(obj *unstructured.Unstructured) []string {
 		return s
 	}
 	return nil
-}
-
-func getObjWithoutDependsAndId(obj unstructured.Unstructured) *unstructured.Unstructured {
-	delete(obj.Object["spec"].(map[string]interface{}), "depends")
-	delete(obj.Object["spec"].(map[string]interface{}), "id")
-	return &obj
 }
 
 // checks if all the dependent obj are ready

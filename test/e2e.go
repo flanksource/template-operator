@@ -51,6 +51,7 @@ var (
 		"for-each-map":                 TestForEachWithMap,
 		"when-true":                    TestWhenConditional,
 		"when-false":                   TestWhenConditionalFalse,
+		"depends-on":                   TestDependsOnAttribute,
 	}
 	scheme              = runtime.NewScheme()
 	restConfig          *rest.Config
@@ -623,6 +624,68 @@ func TestWhenConditionalFalse(ctx context.Context, test *console.TestResults) er
 	return nil
 }
 
+func TestDependsOnAttribute(ctx context.Context, test *console.TestResults) error {
+	testName := "TestDependsOnAttribute"
+	ns := fmt.Sprintf("test-depends-e2e-%s", utils.RandomString(6))
+	if err := client.CreateOrUpdateNamespace(ns, nil, nil); err != nil {
+		test.Failf(testName, "failed to create namespace %s: %v", ns, err)
+		return err
+	}
+	appName := fmt.Sprintf("app-test-dependson")
+	app := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "apps.flanksource.com/v1",
+			"kind":       "Depend",
+			"metadata": map[string]interface{}{
+				"name":      appName,
+				"namespace": ns,
+			},
+			"spec": map[string]interface{}{
+				"image": "nginx",
+			},
+		},
+	}
+	if err := client.Apply(ns, app); err != nil {
+		test.Failf(testName, "failed to create test app: %v", err)
+		return err
+	}
+
+	defer func() {
+		if err := client.DeleteUnstructured(ns, app); err != nil {
+			logger.Errorf("failed to delete app %s: %v", appName, err)
+		}
+	}()
+
+	// Secret will be created
+	if _, err := waitForSecret(ctx, appName, ns); err != nil {
+		test.Failf(testName, "Error while getting secret")
+		return err
+	} else {
+		test.Passf(testName, "Secret %s created successfully", appName)
+	}
+	// ConfigMap will be created
+	if _, err := waitForConfigMap(ctx, appName, ns); err != nil {
+		test.Failf(testName, "Error while getting ConfigMap")
+		return err
+	} else {
+		test.Passf(testName, "ConfigMap %s created successfully", appName)
+	}
+
+	// Deployment will not be created
+	_, err := k8s.AppsV1().Deployments(ns).Get(ctx, appName, metav1.GetOptions{})
+	if err == nil {
+		test.Failf(testName, "Deployment %s was created", appName)
+		return fmt.Errorf("")
+	} else if !kerrors.IsNotFound(err) {
+		test.Failf(testName, "Error getting deployment %s", appName)
+		return fmt.Errorf("")
+	} else {
+		test.Passf(testName, "Deployment %s was not created", appName)
+	}
+
+	return nil
+}
+
 func waitForDeploymentChanged(ctx context.Context, deployment *appsv1.Deployment, fn deploymentFn) (*appsv1.Deployment, error) {
 	for {
 		d, err := k8s.AppsV1().Deployments(deployment.Namespace).Get(ctx, deployment.Name, metav1.GetOptions{})
@@ -649,6 +712,19 @@ func waitForSecret(ctx context.Context, name, namespace string) (*v1.Secret, err
 			continue
 		}
 		return secret, nil
+	}
+}
+
+func waitForConfigMap(ctx context.Context, name, namespace string) (*v1.ConfigMap, error) {
+	for {
+		cm, err := k8s.CoreV1().ConfigMaps(namespace).Get(ctx, name, metav1.GetOptions{})
+		if err != nil && !kerrors.IsNotFound(err) {
+			return nil, errors.Wrapf(err, "failed to get ConfigMap %s in namespace %s", name, namespace)
+		} else if kerrors.IsNotFound(err) {
+			time.Sleep(2 * time.Second)
+			continue
+		}
+		return cm, nil
 	}
 }
 
