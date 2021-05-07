@@ -18,6 +18,7 @@ package controllers
 
 import (
 	"context"
+	"time"
 
 	"github.com/flanksource/kommons"
 	templatev1 "github.com/flanksource/template-operator/api/v1"
@@ -99,7 +100,7 @@ func (r *TemplateReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		return reconcile.Result{}, err
 	}
 	incSuccess(name)
-	return ctrl.Result{}, nil
+	return ctrl.Result{Requeue: true, RequeueAfter: 2 * time.Minute}, nil
 }
 
 func (r *TemplateReconciler) SetupWithManager(mgr ctrl.Manager) error {
