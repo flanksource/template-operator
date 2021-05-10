@@ -193,9 +193,8 @@ func (tm *TemplateManager) Run(ctx context.Context, template *templatev1.Templat
 
 		isSourceReady := true
 
-		objs, err := tm.getObjsFromResources(template.Spec.Resources, *target)
+		objs, err := tm.getObjectsFromResources(template.Spec.Resources, *target)
 		if err != nil {
-			tm.Events.Eventf(&source, v1.EventTypeWarning, "Failed", "Failed to get objects")
 			return err
 		}
 		for _, obj := range objs {
@@ -205,8 +204,8 @@ func (tm *TemplateManager) Run(ctx context.Context, template *templatev1.Templat
 				return err
 			}
 			if !ready {
-				tm.Log.Info("Skipping object", "kind", obj.GetKind(), "namespace", obj.GetNamespace(), "name", obj.GetName(), "obj", obj)
-				tm.Log.Info("Dependent object not ready", "message", msg)
+				tm.Log.V(2).Info("Skipping object", "kind", obj.GetKind(), "namespace", obj.GetNamespace(), "name", obj.GetName(), "obj", obj)
+				tm.Log.V(2).Info("Dependent object not ready", "message", msg)
 				continue
 			}
 
@@ -232,7 +231,7 @@ func (tm *TemplateManager) Run(ctx context.Context, template *templatev1.Templat
 			if isReady, msg, err := tm.isResourceReady(&obj); err != nil {
 				return errors.Wrap(err, "failed to check if resource is ready")
 			} else if !isReady {
-				tm.Log.Info("resource is not ready", "kind", obj.GetKind(), "name", obj.GetName(), "namespace", obj.GetNamespace(), "message", msg)
+				tm.Log.V(2).Info("resource is not ready", "kind", obj.GetKind(), "name", obj.GetName(), "namespace", obj.GetNamespace(), "message", msg)
 				isSourceReady = false
 			} else {
 				tm.Log.V(2).Info("resource is ready", "kind", obj.GetKind(), "name", obj.GetName(), "namespace", obj.GetNamespace(), "message", msg)
@@ -571,7 +570,7 @@ func mkAnnotation(template *templatev1.Template) string {
 }
 
 // Returns object from the list of objects if the id is found and nil in case id is not found
-func getObjFromId(id string, objs []unstructured.Unstructured) *unstructured.Unstructured {
+func getObjectFromId(id string, objs []unstructured.Unstructured) *unstructured.Unstructured {
 	for _, obj := range objs {
 		if obj.Object["id"] != nil {
 			if obj.Object["id"].(string) == id {
@@ -600,7 +599,7 @@ func (tm *TemplateManager) checkDependentObjects(obj *unstructured.Unstructured,
 	if obj.Object["depends"] != nil {
 		ids := getDependsOnIds(obj)
 		for _, id := range ids {
-			dependObj := getObjFromId(id, objs)
+			dependObj := getObjectFromId(id, objs)
 			if ready, msg, err := tm.isResourceReady(dependObj); !ready || err != nil {
 				return false, msg, err
 			}
@@ -609,7 +608,7 @@ func (tm *TemplateManager) checkDependentObjects(obj *unstructured.Unstructured,
 	return true, "object is ready", nil
 }
 
-func (tm *TemplateManager) getObjsFromResources(resources []runtime.RawExtension, target unstructured.Unstructured) ([]unstructured.Unstructured, error) {
+func (tm *TemplateManager) getObjectsFromResources(resources []runtime.RawExtension, target unstructured.Unstructured) ([]unstructured.Unstructured, error) {
 	var objs []unstructured.Unstructured
 	for _, item := range resources {
 		obj, err := tm.getObjects(item.Raw, target.Object)

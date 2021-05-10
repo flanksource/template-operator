@@ -20,6 +20,22 @@ spec:
                   type: integer
                 image:
                   type: string
+                type:
+                  type: string
+                status:
+                  type: string
+            status:
+              type: object
+              properties:
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
   scope: Namespaced
   names:
     plural: depends
@@ -43,6 +59,18 @@ spec:
           properties:
             spec:
               type: object
+            status:
+              type: object
+              properties:
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
   scope: Namespaced
   names:
     plural: samples
@@ -65,8 +93,11 @@ spec:
       metadata:
         name: "{{.metadata.name}}"
         namespace: "{{.metadata.namespace}}"
-      spec:
-        key: "value"
+      spec: {}
+      status:
+        conditions:
+          - type: '{{.spec.type | default "NotReady"}}'
+            status: '{{.spec.status | default "False"}}'
     # will not be created as the dependent object never becomes ready
     - depends: ["test"]
       apiVersion: apps/v1

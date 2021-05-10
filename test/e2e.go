@@ -651,8 +651,8 @@ func TestDependsOnAttribute(ctx context.Context, test *console.TestResults) erro
 	}
 
 	defer func() {
-		if err := client.DeleteUnstructured(ns, app); err != nil {
-			logger.Errorf("failed to delete app %s: %v", appName, err)
+		if err := client.ForceDeleteNamespace(ns, 2*time.Minute); err != nil {
+			logger.Errorf("failed to delete namespace %s: %v", appName, err)
 		}
 	}()
 
@@ -664,6 +664,7 @@ func TestDependsOnAttribute(ctx context.Context, test *console.TestResults) erro
 		test.Passf(testName, "Secret %s created successfully", appName)
 	}
 	// ConfigMap will be created
+
 	if _, err := waitForConfigMap(ctx, appName, ns); err != nil {
 		test.Failf(testName, "Error while getting ConfigMap")
 		return err
@@ -681,6 +682,34 @@ func TestDependsOnAttribute(ctx context.Context, test *console.TestResults) erro
 		return fmt.Errorf("")
 	} else {
 		test.Passf(testName, "Deployment %s was not created", appName)
+	}
+
+	// Updating the unstructured object and verify that deployment is created
+	sampleApp := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "apps.flanksource.com/v1",
+			"kind":       "Depend",
+			"metadata": map[string]interface{}{
+				"name":      appName,
+				"namespace": ns,
+			},
+			"spec": map[string]interface{}{
+				"image":  "nginx",
+				"type":   "Ready",
+				"status": "True",
+			},
+		},
+	}
+	if err := client.Apply(ns, sampleApp); err != nil {
+		test.Failf(testName, "failed to update Depend app: %v", err)
+		return err
+	}
+	// Deployment will be created
+	if _, err := waitForDeployment(ctx, appName, ns); err != nil {
+		test.Failf(testName, "Error while getting deployment")
+		return err
+	} else {
+		test.Passf(testName, "Deployment %s created successfully", appName)
 	}
 
 	return nil
@@ -717,14 +746,14 @@ func waitForSecret(ctx context.Context, name, namespace string) (*v1.Secret, err
 
 func waitForConfigMap(ctx context.Context, name, namespace string) (*v1.ConfigMap, error) {
 	for {
-		cm, err := k8s.CoreV1().ConfigMaps(namespace).Get(ctx, name, metav1.GetOptions{})
+		configMap, err := k8s.CoreV1().ConfigMaps(namespace).Get(ctx, name, metav1.GetOptions{})
 		if err != nil && !kerrors.IsNotFound(err) {
-			return nil, errors.Wrapf(err, "failed to get ConfigMap %s in namespace %s", name, namespace)
+			return nil, errors.Wrapf(err, "failed to get configmap %s in namespace %s", name, namespace)
 		} else if kerrors.IsNotFound(err) {
 			time.Sleep(2 * time.Second)
 			continue
 		}
-		return cm, nil
+		return configMap, nil
 	}
 }
 
