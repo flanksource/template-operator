@@ -657,19 +657,12 @@ func TestDependsOnAttribute(ctx context.Context, test *console.TestResults) erro
 	}()
 
 	// Secret will be created
-	if _, err := waitForSecret(ctx, appName, ns); err != nil {
+
+	if _, err := client.WaitForResource("Secret", ns, appName, 2*time.Minute); err != nil {
 		test.Failf(testName, "Error while getting secret")
 		return err
 	} else {
 		test.Passf(testName, "Secret %s created successfully", appName)
-	}
-	// ConfigMap will be created
-
-	if _, err := waitForConfigMap(ctx, appName, ns); err != nil {
-		test.Failf(testName, "Error while getting ConfigMap")
-		return err
-	} else {
-		test.Passf(testName, "ConfigMap %s created successfully", appName)
 	}
 
 	// Deployment will not be created
@@ -704,8 +697,9 @@ func TestDependsOnAttribute(ctx context.Context, test *console.TestResults) erro
 		test.Failf(testName, "failed to update Depend app: %v", err)
 		return err
 	}
+
 	// Deployment will be created
-	if _, err := waitForDeployment(ctx, appName, ns); err != nil {
+	if _, err := client.WaitForResource("Deployment", ns, appName, 2*time.Minute); err != nil {
 		test.Failf(testName, "Error while getting deployment")
 		return err
 	} else {
@@ -741,19 +735,6 @@ func waitForSecret(ctx context.Context, name, namespace string) (*v1.Secret, err
 			continue
 		}
 		return secret, nil
-	}
-}
-
-func waitForConfigMap(ctx context.Context, name, namespace string) (*v1.ConfigMap, error) {
-	for {
-		configMap, err := k8s.CoreV1().ConfigMaps(namespace).Get(ctx, name, metav1.GetOptions{})
-		if err != nil && !kerrors.IsNotFound(err) {
-			return nil, errors.Wrapf(err, "failed to get configmap %s in namespace %s", name, namespace)
-		} else if kerrors.IsNotFound(err) {
-			time.Sleep(2 * time.Second)
-			continue
-		}
-		return configMap, nil
 	}
 }
 

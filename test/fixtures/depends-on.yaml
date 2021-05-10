@@ -129,10 +129,6 @@ spec:
       metadata:
         name: "{{.metadata.name}}"
         namespace: "{{.metadata.namespace}}"
-
-    - depends: ["secret"]
-      apiVersion: v1
-      kind: ConfigMap
-      metadata:
-        name: "{{.metadata.name}}"
-        namespace: "{{.metadata.namespace}}"
+      data:
+        some-key: c29tZS12YWx1ZQ==
+      type: Opaque
