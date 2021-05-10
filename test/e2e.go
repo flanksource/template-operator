@@ -302,18 +302,26 @@ func TestCopyToNamespace(ctx context.Context, test *console.TestResults) error {
 		return err
 	}
 
-	deadline, _ := context.WithTimeout(ctx, 2*time.Minute)
-	if secret1, err := waitForSecret(deadline, secret.Name, namespaces[0]); err != nil {
+	secret1, err := client.WaitForResource("Secret", namespaces[0], secret.Name, 2*time.Minute)
+	if err != nil {
 		test.Failf("TestCopyToNamespace", "error waiting for secret %s in namespace %s", secret.Name, namespaces[0])
 		return err
-	} else if string(secret1.Data["foo"]) != "bar" {
-		test.Failf("TestCopyToNamespace", "expected secret1 data to have foo=bar, has foo=%s", string(secret1.Data["foo"]))
 	}
-	if secret2, err := waitForSecret(deadline, secret.Name, namespaces[0]); err != nil {
+	secret1Data := secret1.Object["data"].(map[string]interface{})
+	// base64 encoded of "bar" is YmFy
+	if secret1Data["foo"] != "YmFy" {
+		test.Failf("TestCopyToNamespace", "expected secret1 data to have foo=bar, has foo=%s", secret1Data["foo"])
+	}
+
+	secret2, err := client.WaitForResource("Secret", namespaces[1], secret.Name, 2*time.Minute)
+	if err != nil {
 		test.Failf("TestCopyToNamespace", "error waiting for secret %s in namespace %s", secret.Name, namespaces[0])
 		return err
-	} else if string(secret2.Data["foo"]) != "bar" {
-		test.Failf("TestCopyToNamespace", "expected secret2 data to have foo=bar, has foo=%s", string(secret2.Data["foo"]))
+	}
+	secret2Data := secret2.Object["data"].(map[string]interface{})
+	// base64 encoded of "bar" is YmFy
+	if secret2Data["foo"] != "YmFy" {
+		test.Failf("TestCopyToNamespace", "expected secret1 data to have foo=bar, has foo=%s", secret2Data["foo"])
 	}
 
 	test.Passf("TestCopyToNamespace", "Secret was copied to all namespaces")
@@ -549,8 +557,7 @@ func TestWhenConditional(ctx context.Context, test *console.TestResults) error {
 			logger.Errorf("failed to delete app %s: %v", appName, err)
 		}
 	}()
-
-	if _, err := waitForDeployment(ctx, appName, ns); err != nil {
+	if _, err := client.WaitForResource("Deployment", ns, appName, 2*time.Minute); err != nil {
 		test.Failf(testName, "Deployment %s not found: %v", appName, err)
 	} else {
 		test.Passf(testName, "Deployment %s found", appName)
@@ -606,7 +613,7 @@ func TestWhenConditionalFalse(ctx context.Context, test *console.TestResults) er
 		}
 	}()
 
-	if _, err := waitForDeployment(ctx, appName, ns); err != nil {
+	if _, err := client.WaitForResource("Deployment", ns, appName, 2*time.Minute); err != nil {
 		test.Failf(testName, "Deployment %s not found: %v", appName, err)
 	} else {
 		test.Passf(testName, "Deployment %s found", appName)
@@ -722,32 +729,6 @@ func waitForDeploymentChanged(ctx context.Context, deployment *appsv1.Deployment
 
 		log.Debugf("Deployment %s not changed", deployment.Name)
 		time.Sleep(2 * time.Second)
-	}
-}
-
-func waitForSecret(ctx context.Context, name, namespace string) (*v1.Secret, error) {
-	for {
-		secret, err := k8s.CoreV1().Secrets(namespace).Get(ctx, name, metav1.GetOptions{})
-		if err != nil && !kerrors.IsNotFound(err) {
-			return nil, errors.Wrapf(err, "failed to get secret %s in namespace %s", name, namespace)
-		} else if kerrors.IsNotFound(err) {
-			time.Sleep(2 * time.Second)
-			continue
-		}
-		return secret, nil
-	}
-}
-
-func waitForDeployment(ctx context.Context, name, namespace string) (*appsv1.Deployment, error) {
-	for {
-		deployment, err := k8s.AppsV1().Deployments(namespace).Get(ctx, name, metav1.GetOptions{})
-		if err != nil && !kerrors.IsNotFound(err) {
-			return nil, errors.Wrapf(err, "failed to get deployment %s in namespace %s", name, namespace)
-		} else if kerrors.IsNotFound(err) {
-			time.Sleep(2 * time.Second)
-			continue
-		}
-		return deployment, nil
 	}
 }
 
@@ -928,33 +909,6 @@ func readFixture(path string) (*templatev1.Template, error) {
 	}
 
 	return template, nil
-}
-
-func assertEquals(test *console.TestResults, name, actual, expected string) error {
-	if actual != expected {
-		test.Failf(name, "expected %s to equal %s", actual, expected)
-		return errors.Errorf("Test %s expected %s to equal %s", name, actual, expected)
-	}
-	return nil
-}
-
-func assertInterfaceEquals(test *console.TestResults, name string, actual, expected interface{}) error {
-	actualYml, err := yaml.Marshal(actual)
-	if err != nil {
-		return errors.Wrap(err, "failed to marshal actual")
-	}
-
-	expectedYml, err := yaml.Marshal(expected)
-	if err != nil {
-		return errors.Wrap(err, "failed to marshal expected")
-	}
-
-	if string(actualYml) != string(expectedYml) {
-		test.Failf("Test %s expected: %s\n\nTo Equal:\n%s\n", name, string(actualYml), string(expectedYml))
-		return errors.Errorf("Test %s expected:\n%s\nTo Match:\n%s\n", name, actualYml, expectedYml)
-	}
-
-	return nil
 }
 
 func homeDir() string {
