@@ -18,7 +18,6 @@ package controllers
 
 import (
 	"context"
-
 	"github.com/flanksource/kommons"
 	templatev1 "github.com/flanksource/template-operator/api/v1"
 	"github.com/flanksource/template-operator/k8s"
@@ -94,12 +93,13 @@ func (r *TemplateReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		incFailed(name)
 		return reconcile.Result{}, err
 	}
-	if err := tm.Run(ctx, template); err != nil {
+	result, err := tm.Run(ctx, template)
+	if err != nil {
 		incFailed(name)
 		return reconcile.Result{}, err
 	}
 	incSuccess(name)
-	return ctrl.Result{}, nil
+	return result, nil
 }
 
 func (r *TemplateReconciler) SetupWithManager(mgr ctrl.Manager) error {

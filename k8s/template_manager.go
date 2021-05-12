@@ -5,11 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"k8s.io/apimachinery/pkg/runtime"
 	"regexp"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sort"
 	"strconv"
 	"strings"
 	"text/template"
+	"time"
 
 	"github.com/flanksource/kommons"
 	"github.com/flanksource/kommons/ktemplate"
@@ -154,11 +157,11 @@ func (tm *TemplateManager) selectResources(ctx context.Context, selector *templa
 	return sources, nil
 }
 
-func (tm *TemplateManager) Run(ctx context.Context, template *templatev1.Template) error {
+func (tm *TemplateManager) Run(ctx context.Context, template *templatev1.Template) (result ctrl.Result, err error) {
 	tm.Log.Info("Reconciling", "template", template.Name)
 	sources, err := tm.selectResources(ctx, &template.Spec.Source)
 	if err != nil {
-		return err
+		return
 	}
 	tm.Log.Info("Found resources for template", "template", template.Name, "count", len(sources))
 
@@ -170,14 +173,14 @@ func (tm *TemplateManager) Run(ctx context.Context, template *templatev1.Templat
 				target, err = tm.PatchApplier.Apply(target, patch, PatchTypeYaml)
 				if err != nil {
 					tm.Events.Eventf(&source, v1.EventTypeWarning, "Failed", "Failed to apply patch")
-					return err
+					return
 				}
 			}
 			for _, patch := range template.Spec.JsonPatches {
 				target, err = tm.PatchApplier.Apply(target, patch.Patch, PatchTypeJSON)
 				if err != nil {
 					tm.Events.Eventf(&source, v1.EventTypeWarning, "Failed", "Failed to apply patch")
-					return err
+					return
 				}
 			}
 			if len(template.Spec.JsonPatches) > 0 || len(template.Spec.Patches) > 0 {
@@ -185,48 +188,56 @@ func (tm *TemplateManager) Run(ctx context.Context, template *templatev1.Templat
 				stripAnnotations(target)
 				if err := tm.Client.ApplyUnstructured(source.GetNamespace(), target); err != nil {
 					tm.Events.Eventf(&source, v1.EventTypeWarning, "Failed", "Failed to apply object")
-					return err
+					return result, err
 				}
 			}
 		}
 
 		isSourceReady := true
 
-		for _, item := range template.Spec.Resources {
-			objs, err := tm.getObjects(item.Raw, target.Object)
+		objs, err := tm.getObjectsFromResources(template.Spec.Resources, *target)
+		if err != nil {
+			return result, err
+		}
+		for _, obj := range objs {
+			ready, msg, err, rslt := tm.checkDependentObjects(&obj, objs)
 			if err != nil {
-				tm.Events.Eventf(&source, v1.EventTypeWarning, "Failed", "Failed to get objects")
-				return err
+				tm.Events.Eventf(&source, v1.EventTypeWarning, "Failed", "Failed to check dependent objects")
+				return result, err
+			}
+			if !ready {
+				result = rslt
+				tm.Log.V(2).Info("Skipping object", "kind", obj.GetKind(), "namespace", obj.GetNamespace(), "name", obj.GetName(), "obj", obj)
+				tm.Log.V(2).Info("Dependent object not ready", "message", msg)
+				continue
 			}
 
-			for _, obj := range objs {
-				// cross-namespace owner references are not allowed, so we create an annotation for tracking purposes only
-				if source.GetNamespace() == obj.GetNamespace() {
-					obj.SetOwnerReferences([]metav1.OwnerReference{{APIVersion: source.GetAPIVersion(), Kind: source.GetKind(), Name: source.GetName(), UID: source.GetUID()}})
-				} else {
-					crossNamespaceOwner(obj, source)
-				}
+			// cross-namespace owner references are not allowed, so we create an annotation for tracking purposes only
+			if source.GetNamespace() == obj.GetNamespace() {
+				obj.SetOwnerReferences([]metav1.OwnerReference{{APIVersion: source.GetAPIVersion(), Kind: source.GetKind(), Name: source.GetName(), UID: source.GetUID()}})
+			} else {
+				crossNamespaceOwner(&obj, source)
+			}
 
-				stripAnnotations(obj)
+			stripAnnotations(&obj)
 
-				if tm.Log.V(2).Enabled() {
-					tm.Log.V(2).Info("Applying", "kind", obj.GetKind(), "namespace", obj.GetNamespace(), "name", obj.GetName(), "obj", obj)
-				} else {
-					tm.Log.Info("Applying", "kind", obj.GetKind(), "namespace", obj.GetNamespace(), "name", obj.GetName())
-				}
-				if err := tm.Client.ApplyUnstructured(obj.GetNamespace(), obj); err != nil {
-					tm.Events.Eventf(&source, v1.EventTypeWarning, "Failed", "Failed to apply new resource kind=%s name=%s err=%v", obj.GetKind(), obj.GetName(), err)
-					return err
-				}
+			if tm.Log.V(2).Enabled() {
+				tm.Log.V(2).Info("Applying", "kind", obj.GetKind(), "namespace", obj.GetNamespace(), "name", obj.GetName(), "obj", obj)
+			} else {
+				tm.Log.Info("Applying", "kind", obj.GetKind(), "namespace", obj.GetNamespace(), "name", obj.GetName())
+			}
+			if err := tm.Client.ApplyUnstructured(obj.GetNamespace(), &obj); err != nil {
+				tm.Events.Eventf(&source, v1.EventTypeWarning, "Failed", "Failed to apply new resource kind=%s name=%s err=%v", obj.GetKind(), obj.GetName(), err)
+				return result, err
+			}
 
-				if isReady, msg, err := tm.isResourceReady(obj); err != nil {
-					return errors.Wrap(err, "failed to check if resource is ready")
-				} else if !isReady {
-					tm.Log.Info("resource is not ready", "kind", obj.GetKind(), "name", obj.GetName(), "namespace", obj.GetNamespace(), "message", msg)
-					isSourceReady = false
-				} else {
-					tm.Log.V(2).Info("resource is ready", "kind", obj.GetKind(), "name", obj.GetName(), "namespace", obj.GetNamespace(), "message", msg)
-				}
+			if isReady, msg, err := tm.isResourceReady(&obj); err != nil {
+				return result, errors.Wrap(err, "failed to check if resource is ready")
+			} else if !isReady {
+				tm.Log.V(2).Info("resource is not ready", "kind", obj.GetKind(), "name", obj.GetName(), "namespace", obj.GetNamespace(), "message", msg)
+				isSourceReady = false
+			} else {
+				tm.Log.V(2).Info("resource is ready", "kind", obj.GetKind(), "name", obj.GetName(), "namespace", obj.GetNamespace(), "message", msg)
 			}
 		}
 
@@ -234,7 +245,7 @@ func (tm *TemplateManager) Run(ctx context.Context, template *templatev1.Templat
 			namespaces, err := tm.getNamespaces(ctx, *template.Spec.CopyToNamespaces)
 			if err != nil {
 				tm.Events.Eventf(&source, v1.EventTypeWarning, "Failed", "Failed to get namespaces")
-				return errors.Wrap(err, "failed to get namespaces")
+				return result, errors.Wrap(err, "failed to get namespaces")
 			}
 
 			for _, namespace := range namespaces {
@@ -253,11 +264,11 @@ func (tm *TemplateManager) Run(ctx context.Context, template *templatev1.Templat
 
 				if err := tm.Client.ApplyUnstructured(newResource.GetNamespace(), newResource); err != nil {
 					tm.Events.Eventf(&source, v1.EventTypeWarning, "Failed", "Failed to copy to namespace %s", namespace)
-					return err
+					return result, err
 				}
 
 				if isReady, msg, err := tm.isResourceReady(newResource); err != nil {
-					return errors.Wrap(err, "failed to check if resource is ready")
+					return result, errors.Wrap(err, "failed to check if resource is ready")
 				} else if !isReady {
 					tm.Log.Info("resource is not ready", "kind", newResource.GetKind(), "name", newResource.GetName(), "namespace", newResource.GetNamespace(), "message", msg)
 					isSourceReady = false
@@ -275,7 +286,7 @@ func (tm *TemplateManager) Run(ctx context.Context, template *templatev1.Templat
 			tm.Log.Error(err, "failed to set condition on resource", "kind", source.GetKind(), "name", source.GetName(), "namespace", source.GetNamespace(), "conditionValue", conditionValue)
 		}
 	}
-	return nil
+	return
 }
 
 func (tm *TemplateManager) Template(data []byte, vars interface{}) ([]byte, error) {
@@ -370,7 +381,6 @@ func (tm *TemplateManager) getObjects(rawItem []byte, target map[string]interfac
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to template resources")
 		}
-
 		objs, err := kommons.GetUnstructuredObjects(data)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to get unstructured objects")
@@ -560,4 +570,60 @@ func alreadyApplied(template *templatev1.Template, item unstructured.Unstructure
 
 func mkAnnotation(template *templatev1.Template) string {
 	return fmt.Sprintf(alreadyAppliedAnnotation, template.Namespace, template.Name)
+}
+
+// Returns object from the list of objects if the id is found and nil in case id is not found
+func getObjectFromId(id string, objs []unstructured.Unstructured) (*unstructured.Unstructured, error) {
+	for _, obj := range objs {
+		if obj.Object["id"] != nil {
+			if obj.Object["id"].(string) == id {
+				return &obj, nil
+			}
+		}
+	}
+	return nil, fmt.Errorf("No object found with id: %v", id)
+}
+
+// Returns []string with IDs in case a object depends on any other object
+func getDependsOnIds(obj *unstructured.Unstructured) []string {
+	if obj.Object["depends"] != nil {
+		depends := obj.Object["depends"].([]interface{})
+		s := make([]string, len(depends))
+		for i, v := range depends {
+			s[i] = fmt.Sprint(v)
+		}
+		return s
+	}
+	return nil
+}
+
+// checks if all the dependent obj are ready
+func (tm *TemplateManager) checkDependentObjects(obj *unstructured.Unstructured, objs []unstructured.Unstructured) (bool, string, error, ctrl.Result) {
+	if obj.Object["depends"] != nil {
+		ids := getDependsOnIds(obj)
+		for _, id := range ids {
+			dependObj, err := getObjectFromId(id, objs)
+			if err != nil {
+				return false, "", err, ctrl.Result{}
+			}
+			if ready, msg, err := tm.isResourceReady(dependObj); !ready || err != nil {
+				return false, msg, err, ctrl.Result{Requeue: true, RequeueAfter: 2 * time.Minute}
+			}
+		}
+	}
+	return true, "object is ready", nil, ctrl.Result{}
+}
+
+func (tm *TemplateManager) getObjectsFromResources(resources []runtime.RawExtension, target unstructured.Unstructured) ([]unstructured.Unstructured, error) {
+	var objs []unstructured.Unstructured
+	for _, item := range resources {
+		obj, err := tm.getObjects(item.Raw, target.Object)
+		if err != nil {
+			return nil, err
+		}
+		for _, ob := range obj {
+			objs = append(objs, *ob)
+		}
+	}
+	return objs, nil
 }

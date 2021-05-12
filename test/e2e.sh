@@ -48,6 +48,7 @@ kubectl apply -f examples/namespacerequest.yml
 kubectl apply -f examples/for-each.yml
 kubectl apply -f examples/when.yaml
 kubectl apply -f test/fixtures/awx-operator.yml
+kubectl apply -f test/fixtures/depends-on.yaml
 
 export IMG=flanksource/template-operator:v1
 make docker-build

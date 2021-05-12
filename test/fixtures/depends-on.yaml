@@ -1,0 +1,134 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: depends.apps.flanksource.com
+spec:
+  group: apps.flanksource.com
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                replicas:
+                  type: integer
+                image:
+                  type: string
+                type:
+                  type: string
+                status:
+                  type: string
+            status:
+              type: object
+              properties:
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+  scope: Namespaced
+  names:
+    plural: depends
+    singular: depend
+    kind: Depend
+
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: samples.apps.flanksource.com
+spec:
+  group: apps.flanksource.com
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+            status:
+              type: object
+              properties:
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+  scope: Namespaced
+  names:
+    plural: samples
+    singular: sample
+    kind: Sample
+---
+
+apiVersion: templating.flanksource.com/v1
+kind: Template
+metadata:
+  name: depend-example
+spec:
+  source:
+    apiVersion: apps.flanksource.com/v1
+    kind: Depend
+  resources:
+    - id: test
+      apiVersion: apps.flanksource.com/v1
+      kind: Sample
+      metadata:
+        name: "{{.metadata.name}}"
+        namespace: "{{.metadata.namespace}}"
+      spec: {}
+      status:
+        conditions:
+          - type: '{{.spec.type | default "NotReady"}}'
+            status: '{{.spec.status | default "False"}}'
+    # will not be created as the dependent object never becomes ready
+    - depends: ["test"]
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: "{{.metadata.name}}"
+        namespace: "{{.metadata.namespace}}"
+        labels:
+          app: "{{.metadata.name}}"
+      spec:
+        replicas: "{{.spec.replicas | default 1}}"
+        selector:
+          matchLabels:
+            app: "{{.metadata.name}}"
+        template:
+          metadata:
+            labels:
+              app: "{{.metadata.name}}"
+          spec:
+            containers:
+              - name: web
+                image: "{{.spec.image}}"
+                ports:
+                  - containerPort: 80
+    # will be created as it does not depend on any other object
+    - id: secret
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: "{{.metadata.name}}"
+        namespace: "{{.metadata.namespace}}"
+      data:
+        some-key: c29tZS12YWx1ZQ==
+      type: Opaque

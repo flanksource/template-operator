@@ -4,3 +4,7 @@ cover.out
 /.bin
 /.certs
 /karina*
+
+#intelij project files
+.idea/
+*.iml
