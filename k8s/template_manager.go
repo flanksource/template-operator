@@ -91,7 +91,7 @@ func NewTemplateManager(c *kommons.Client, log logr.Logger, cache *SchemaCache, 
 		return nil, errors.Wrap(err, "faile to create patch applier")
 	}
 
-	functions := ktemplate.NewFunctions(clientset)
+	functions := ktemplate.NewFunctions(c)
 
 	tm := &TemplateManager{
 		Client:        c,

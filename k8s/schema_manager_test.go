@@ -2,14 +2,10 @@ package k8s_test
 
 import (
 	"fmt"
-	"io/ioutil"
-	"os"
-	"path"
 	"reflect"
 	"strings"
 
 	"github.com/flanksource/commons/logger"
-	"github.com/flanksource/kommons"
 	"github.com/flanksource/template-operator/k8s"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -18,7 +14,6 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/util/homedir"
 	"sigs.k8s.io/yaml"
 )
 
@@ -412,7 +407,7 @@ func newSchemaManager() *k8s.SchemaManager {
 }
 
 func clientset() *kubernetes.Clientset {
-	client := kommonsClient()
+	client := k8s.KommonsClient()
 	clientset, err := client.GetClientset()
 	if err != nil {
 		logger.Fatalf("failed to get clientset: %v", err)
@@ -421,7 +416,7 @@ func clientset() *kubernetes.Clientset {
 }
 
 func crdClient() extapi.ApiextensionsV1beta1Interface {
-	client := kommonsClient()
+	client := k8s.KommonsClient()
 	restConfig, err := client.GetRESTConfig()
 	if err != nil {
 		logger.Fatalf("failed to get rest config: %v", err)
@@ -431,28 +426,4 @@ func crdClient() extapi.ApiextensionsV1beta1Interface {
 		logger.Fatalf("failed to get extapi client: %v", err)
 	}
 	return crdClient
-}
-
-func kommonsClient() *kommons.Client {
-	bytes, err := getKubeConfig()
-	if err != nil {
-		logger.Fatalf("failed to get kubeconfig: %v", err)
-	}
-	client, err := kommons.NewClientFromBytes(bytes)
-	if err != nil {
-		logger.Fatalf("failed to create kommons.Client: %v", err)
-	}
-	return client
-}
-
-func getKubeConfig() ([]byte, error) {
-	if env := os.Getenv("KUBECONFIG"); env != "" {
-		return ioutil.ReadFile(env)
-	}
-
-	if home := homedir.HomeDir(); home != "" {
-		return ioutil.ReadFile(path.Join(home, ".kube", "config"))
-	}
-
-	return nil, errors.Errorf("failed to find kube config")
 }
