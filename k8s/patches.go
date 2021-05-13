@@ -3,6 +3,13 @@ package k8s
 import (
 	"bytes"
 	"fmt"
+	"github.com/flanksource/commons/logger"
+	"github.com/flanksource/kommons"
+	"io/ioutil"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/util/homedir"
+	"os"
+	"path"
 	"path/filepath"
 	osruntime "runtime"
 	"strings"
@@ -15,7 +22,6 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/cli-runtime/pkg/kustomize"
-	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/kustomize/pkg/fs"
 	"sigs.k8s.io/kustomize/pkg/gvk"
 	"sigs.k8s.io/kustomize/pkg/patch"
@@ -44,7 +50,7 @@ func NewPatchApplier(clientset *kubernetes.Clientset, schemaManager *SchemaManag
 		SchemaManager: schemaManager,
 	}
 
-	functions := ktemplate.NewFunctions(clientset)
+	functions := ktemplate.NewFunctions(KommonsClient())
 	p.FuncMap = functions.FuncMap()
 	return p, nil
 }
@@ -185,4 +191,28 @@ func stripAnnotations(obj *unstructured.Unstructured) {
 		delete(annotations, a)
 	}
 	obj.SetAnnotations(annotations)
+}
+
+func KommonsClient() *kommons.Client {
+	byts, err := GetKubeConfig()
+	if err != nil {
+		logger.Fatalf("failed to get kubeconfig: %v", err)
+	}
+	client, err := kommons.NewClientFromBytes(byts)
+	if err != nil {
+		logger.Fatalf("failed to create kommons.Client: %v", err)
+	}
+	return client
+}
+
+func GetKubeConfig() ([]byte, error) {
+	if env := os.Getenv("KUBECONFIG"); env != "" {
+		return ioutil.ReadFile(env)
+	}
+
+	if home := homedir.HomeDir(); home != "" {
+		return ioutil.ReadFile(path.Join(home, ".kube", "config"))
+	}
+
+	return nil, errors.Errorf("failed to find kube config")
 }
