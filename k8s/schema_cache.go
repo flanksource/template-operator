@@ -41,15 +41,27 @@ func NewSchemaCache(clientset *kubernetes.Clientset, expire time.Duration, log l
 func (sc *SchemaCache) ExpireSchema() error {
 	sc.lock.Lock()
 	defer sc.lock.Unlock()
-	sc.schemaExpireTimestamp = time.Now()
+	if sc.schemaExpireTimestamp.After(time.Now()) {
+		sc.schemaExpireTimestamp = time.Now()
+	}
 	return nil
 }
 
 func (sc *SchemaCache) ExpireResources() error {
 	sc.lock.Lock()
 	defer sc.lock.Unlock()
-	sc.resourcesExpireTimestamp = time.Now()
+	if sc.resourcesExpireTimestamp.After(time.Now()) {
+		sc.resourcesExpireTimestamp = time.Now()
+	}
 	return nil
+}
+
+func (sc *SchemaCache) SchemaHasExpired() bool {
+	return sc.schemaExpireTimestamp.Before(time.Now())
+}
+
+func (sc *SchemaCache) ResourceHasExpired() bool {
+	return sc.resourcesExpireTimestamp.Before(time.Now())
 }
 
 func (sc *SchemaCache) FetchSchema() (*spec.Swagger, error) {

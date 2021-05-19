@@ -17,6 +17,7 @@ limitations under the License.
 package controllers
 
 import (
+	"context"
 	"github.com/flanksource/kommons"
 	"github.com/flanksource/template-operator/k8s"
 	"github.com/go-logr/logr"
@@ -29,6 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
+	"strconv"
 )
 
 // CRDReconciler reconciles changes to CRD objects
@@ -39,7 +41,7 @@ type CRDReconciler struct {
 	Log              logr.Logger
 	Scheme           *runtime.Scheme
 	Cache            *k8s.SchemaCache
-	CRDcache		 map[string]string
+	ResourceVersion	 int
 
 }
 
@@ -47,13 +49,33 @@ type CRDReconciler struct {
 
 func (r *CRDReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	log := r.Log.WithValues("crd", req.NamespacedName)
+	log.V(2).Info("crd update detected, checking cache state")
+	crd := &apiv1.CustomResourceDefinition{}
 
-	if err := r.Cache.ExpireSchema(); err != nil {
-		log.Error(err, "failed to reset internal CRD cache")
+	if err := r.ControllerClient.Get(context.Background(), req.NamespacedName, crd); err != nil {
 		return reconcile.Result{}, err
 	}
 
+	resourceVersion, err := strconv.Atoi(crd.ResourceVersion)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
+
+	if resourceVersion > r.ResourceVersion {
+		log.V(2).Info("Newer resourceVersion detected, resetting cache")
+		if err := r.resetCache(); err != nil {
+			return reconcile.Result{}, err
+		}
+		r.ResourceVersion = resourceVersion
+	}
 	return reconcile.Result{}, nil
+}
+
+func (r *CRDReconciler) resetCache() error {
+	if err := r.Cache.ExpireSchema(); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (r *CRDReconciler) SetupWithManager(mgr ctrl.Manager) error {

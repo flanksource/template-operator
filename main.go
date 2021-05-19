@@ -30,6 +30,7 @@ import (
 	uzap "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"gopkg.in/yaml.v2"
+	apiv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
@@ -47,6 +48,7 @@ func init() {
 	_ = clientgoscheme.AddToScheme(scheme)
 
 	_ = templatingflanksourcecomv1.AddToScheme(scheme)
+	apiv1.AddToScheme(scheme)
 	// +kubebuilder:scaffold:scheme
 
 	yaml.FutureLineWrap()
@@ -115,7 +117,7 @@ func main() {
 		Cache:  schemaCache,
 		Log:    ctrl.Log.WithName("controllers").WithName("Template"),
 		Scheme: mgr.GetScheme(),
-		CRDcache: make(map[string]string),
+		ResourceVersion: 0,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Template")
 		os.Exit(1)
