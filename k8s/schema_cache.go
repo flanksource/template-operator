@@ -38,6 +38,20 @@ func NewSchemaCache(clientset *kubernetes.Clientset, expire time.Duration, log l
 	return sc
 }
 
+func (sc *SchemaCache) ExpireSchema() error {
+	sc.lock.Lock()
+	defer sc.lock.Unlock()
+	sc.schemaExpireTimestamp = time.Now()
+	return nil
+}
+
+func (sc *SchemaCache) ExpireResources() error {
+	sc.lock.Lock()
+	defer sc.lock.Unlock()
+	sc.resourcesExpireTimestamp = time.Now()
+	return nil
+}
+
 func (sc *SchemaCache) FetchSchema() (*spec.Swagger, error) {
 	sc.lock.Lock()
 	defer sc.lock.Unlock()
