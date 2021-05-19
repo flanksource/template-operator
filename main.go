@@ -109,6 +109,17 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "Template")
 		os.Exit(1)
 	}
+	//CRDReconciler shares a SchemaCache with TemplateReconciler, and resets it if changes to CRDs are reported, so that the TemplateReconciler will pick them up
+	if err = (&controllers.CRDReconciler{
+		Client: client,
+		Cache:  schemaCache,
+		Log:    ctrl.Log.WithName("controllers").WithName("Template"),
+		Scheme: mgr.GetScheme(),
+		CRDcache: make(map[string]string),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "Template")
+		os.Exit(1)
+	}
 	// +kubebuilder:scaffold:builder
 
 	setupLog.Info("starting manager")
