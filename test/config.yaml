@@ -50,6 +50,8 @@ canaryChecker:
 postgresOperator:
   version: v1.3.4.flanksource.1
   backupBucket: e2e-postgres-backups
+platformOperator:
+  version: v0.7.2
 test:
   exclude:
     - configmap-reloader
