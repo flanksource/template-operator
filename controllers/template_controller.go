@@ -87,7 +87,10 @@ func (r *TemplateReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		incFailed(name)
 		return reconcile.Result{}, err
 	}
-
+	//If the TemplateManager will fetch a new schema, ensure the kommons.client also does so in order to ensure they contain the same information
+	if r.Cache.SchemaHasExpired() {
+		r.Client.ResetRestMapper()
+	}
 	tm, err := k8s.NewTemplateManager(r.Client, log, r.Cache, r.Events)
 	if err != nil {
 		incFailed(name)

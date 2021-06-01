@@ -302,7 +302,7 @@ func TestCopyToNamespace(ctx context.Context, test *console.TestResults) error {
 		return err
 	}
 
-	secret1, err := client.WaitForResource("Secret", namespaces[0], secret.Name, 2*time.Minute)
+	secret1, err := client.WaitForResource("Secret", namespaces[0], secret.Name, 5*time.Minute)
 	if err != nil {
 		test.Failf("TestCopyToNamespace", "error waiting for secret %s in namespace %s", secret.Name, namespaces[0])
 		return err
@@ -313,7 +313,7 @@ func TestCopyToNamespace(ctx context.Context, test *console.TestResults) error {
 		test.Failf("TestCopyToNamespace", "expected secret1 data to have foo=bar, has foo=%s", secret1Data["foo"])
 	}
 
-	secret2, err := client.WaitForResource("Secret", namespaces[1], secret.Name, 2*time.Minute)
+	secret2, err := client.WaitForResource("Secret", namespaces[1], secret.Name, 5*time.Minute)
 	if err != nil {
 		test.Failf("TestCopyToNamespace", "error waiting for secret %s in namespace %s", secret.Name, namespaces[0])
 		return err
@@ -557,7 +557,7 @@ func TestWhenConditional(ctx context.Context, test *console.TestResults) error {
 			logger.Errorf("failed to delete app %s: %v", appName, err)
 		}
 	}()
-	if _, err := client.WaitForResource("Deployment", ns, appName, 2*time.Minute); err != nil {
+	if _, err := client.WaitForResource("Deployment", ns, appName, 5*time.Minute); err != nil {
 		test.Failf(testName, "Deployment %s not found: %v", appName, err)
 	} else {
 		test.Passf(testName, "Deployment %s found", appName)
@@ -613,7 +613,7 @@ func TestWhenConditionalFalse(ctx context.Context, test *console.TestResults) er
 		}
 	}()
 
-	if _, err := client.WaitForResource("Deployment", ns, appName, 2*time.Minute); err != nil {
+	if _, err := client.WaitForResource("Deployment", ns, appName, 5*time.Minute); err != nil {
 		test.Failf(testName, "Deployment %s not found: %v", appName, err)
 	} else {
 		test.Passf(testName, "Deployment %s found", appName)
@@ -638,6 +638,12 @@ func TestDependsOnAttribute(ctx context.Context, test *console.TestResults) erro
 		test.Failf(testName, "failed to create namespace %s: %v", ns, err)
 		return err
 	}
+	defer func() {
+		if err := client.ForceDeleteNamespace(ns, 5*time.Minute); err != nil {
+			logger.Errorf("failed to delete namespace %s: %v", ns, err)
+		}
+	}()
+
 	appName := fmt.Sprintf("app-test-dependson")
 	app := &unstructured.Unstructured{
 		Object: map[string]interface{}{
@@ -658,14 +664,14 @@ func TestDependsOnAttribute(ctx context.Context, test *console.TestResults) erro
 	}
 
 	defer func() {
-		if err := client.ForceDeleteNamespace(ns, 2*time.Minute); err != nil {
-			logger.Errorf("failed to delete namespace %s: %v", appName, err)
+		if err := client.DeleteUnstructured(ns, app); err != nil {
+			logger.Errorf("failed to delete app %s: %v", appName, err)
 		}
 	}()
 
 	// Secret will be created
 
-	if _, err := client.WaitForResource("Secret", ns, appName, 2*time.Minute); err != nil {
+	if _, err := client.WaitForResource("Secret", ns, appName, 5*time.Minute); err != nil {
 		test.Failf(testName, "Error while getting secret")
 		return err
 	} else {
@@ -706,7 +712,7 @@ func TestDependsOnAttribute(ctx context.Context, test *console.TestResults) erro
 	}
 
 	// Deployment will be created
-	if _, err := client.WaitForResource("Deployment", ns, appName, 2*time.Minute); err != nil {
+	if _, err := client.WaitForResource("Deployment", ns, appName, 5*time.Minute); err != nil {
 		test.Failf(testName, "Error while getting deployment")
 		return err
 	} else {
@@ -868,6 +874,8 @@ func waitForAbcdTopic(ctx context.Context, name, namespace string, spec map[stri
 		},
 	}
 
+	start := time.Now()
+
 	for {
 		client, _, _, err := client.GetDynamicClientFor(namespace, abcdTopic)
 		if err != nil {
@@ -877,6 +885,10 @@ func waitForAbcdTopic(ctx context.Context, name, namespace string, spec map[stri
 		if err != nil && !kerrors.IsNotFound(err) {
 			return errors.Wrapf(err, "failed to get abcd topic %s", name)
 		} else if kerrors.IsNotFound(err) {
+			if start.Add(5*time.Minute).Before(time.Now()) {
+				fmt.Printf("Waiting time exceeded")
+				return err
+			}
 			time.Sleep(2 * time.Second)
 			continue
 		}

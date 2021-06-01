@@ -286,6 +286,8 @@ func (tm *TemplateManager) Run(ctx context.Context, template *templatev1.Templat
 			tm.Log.Error(err, "failed to set condition on resource", "kind", source.GetKind(), "name", source.GetName(), "namespace", source.GetNamespace(), "conditionValue", conditionValue)
 		}
 	}
+
+	tm.Log.V(3).Info("Reconcile Complete", "template", template.Name)
 	return
 }
 
