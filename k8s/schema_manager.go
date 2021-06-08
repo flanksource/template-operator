@@ -418,6 +418,8 @@ func (m *SchemaManager) getDefinitionName(gvk schema.GroupVersionKind) string {
 		group = "core"
 	} else if group == "rbac.authorization.k8s.io" {
 		group = "rbac"
+	} else if group == "networking.k8s.io" {
+		group = "networking"
 	}
 
 	return fmt.Sprintf("io.k8s.api.%s.%s.%s", group, version, kind)
