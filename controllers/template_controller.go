@@ -18,6 +18,7 @@ package controllers
 
 import (
 	"context"
+
 	templatev1 "github.com/flanksource/template-operator/api/v1"
 	"github.com/flanksource/template-operator/k8s"
 	"github.com/prometheus/client_golang/prometheus"
@@ -80,12 +81,14 @@ func (r *TemplateReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	if r.Cache.SchemaHasExpired() {
 		r.KommonsClient.ResetRestMapper()
 	}
-	tm, err := k8s.NewTemplateManager(r.KommonsClient, log, r.Cache, r.Events)
+	tm, err := k8s.NewTemplateManager(r.KommonsClient, log, r.Cache, r.Events, r.Watcher)
 	if err != nil {
 		incFailed(name)
 		return reconcile.Result{}, err
 	}
-	result, err := tm.Run(ctx, template)
+	result, err := tm.Run(ctx, template, func() {
+		r.Reconcile(ctx, req)
+	})
 	if err != nil {
 		incFailed(name)
 		return reconcile.Result{}, err

@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"fmt"
+
 	"github.com/flanksource/kommons"
 	"github.com/flanksource/template-operator/k8s"
 	"github.com/go-logr/logr"
@@ -24,6 +25,7 @@ type Client struct {
 	Scheme           *runtime.Scheme
 	Cache            *k8s.SchemaCache
 	Discovery        discovery.DiscoveryInterface
+	Watcher          k8s.WatcherInterface
 }
 
 // HasKind detects if the given api group with specified version is supported by the server

@@ -5,14 +5,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"k8s.io/apimachinery/pkg/runtime"
 	"regexp"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sort"
 	"strconv"
 	"strings"
 	"text/template"
 	"time"
+
+	"k8s.io/apimachinery/pkg/runtime"
+	ctrl "sigs.k8s.io/controller-runtime"
 
 	"github.com/flanksource/kommons"
 	"github.com/flanksource/kommons/ktemplate"
@@ -44,6 +45,7 @@ type TemplateManager struct {
 	SchemaManager *SchemaManager
 	FuncMap       template.FuncMap
 	Events        record.EventRecorder
+	Watcher       WatcherInterface
 }
 
 type ResourcePatch struct {
@@ -69,7 +71,7 @@ type ForEach struct {
 	Map     map[string]interface{}
 }
 
-func NewTemplateManager(c *kommons.Client, log logr.Logger, cache *SchemaCache, events record.EventRecorder) (*TemplateManager, error) {
+func NewTemplateManager(c *kommons.Client, log logr.Logger, cache *SchemaCache, events record.EventRecorder, watcher WatcherInterface) (*TemplateManager, error) {
 	clientset, _ := c.GetClientset()
 
 	restConfig, err := c.GetRESTConfig()
@@ -100,12 +102,15 @@ func NewTemplateManager(c *kommons.Client, log logr.Logger, cache *SchemaCache, 
 		Events:        events,
 		PatchApplier:  patchApplier,
 		SchemaManager: schemaManager,
+		Watcher:       watcher,
 		FuncMap:       functions.FuncMap(),
 	}
 	return tm, nil
 }
 
-func (tm *TemplateManager) selectResources(ctx context.Context, selector *templatev1.ResourceSelector) ([]unstructured.Unstructured, error) {
+func (tm *TemplateManager) selectResources(ctx context.Context, template *templatev1.Template, cb CallbackFunc) ([]unstructured.Unstructured, error) {
+	selector := template.Spec.Source
+
 	if selector.Kind == "" || selector.APIVersion == "" {
 		return nil, errors.New("must specify a kind and apiVersion")
 	}
@@ -150,16 +155,23 @@ func (tm *TemplateManager) selectResources(ctx context.Context, selector *templa
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to list resources for kind %s", selector.Kind)
 		}
+
 		for _, item := range resources.Items {
 			sources = append(sources, item)
 		}
 	}
+
+	if len(sources) > 0 {
+		obj := sources[0]
+		tm.Watcher.Watch(&obj, template, cb)
+	}
+
 	return sources, nil
 }
 
-func (tm *TemplateManager) Run(ctx context.Context, template *templatev1.Template) (result ctrl.Result, err error) {
+func (tm *TemplateManager) Run(ctx context.Context, template *templatev1.Template, cb CallbackFunc) (result ctrl.Result, err error) {
 	tm.Log.Info("Reconciling", "template", template.Name)
-	sources, err := tm.selectResources(ctx, &template.Spec.Source)
+	sources, err := tm.selectResources(ctx, template, cb)
 	if err != nil {
 		return
 	}
