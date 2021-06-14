@@ -152,7 +152,7 @@ func (m *SchemaManager) duckType(schema *spec.Schema, object interface{}, prefix
 		}
 		newValue, err := transformStringToType(value, fieldType)
 		if err != nil {
-			return nil, errors.Wrapf(err, "failed to transform string to type %v", fieldType)
+			return nil, errors.Wrapf(err, "field: %s failed to transform string to type %v", prefix, fieldType)
 		}
 		return newValue, nil
 	case reflect.Int, reflect.Int8, reflect.Int32, reflect.Int64:
@@ -164,7 +164,7 @@ func (m *SchemaManager) duckType(schema *spec.Schema, object interface{}, prefix
 		}
 		newValue, err := transformInt64ToType(value, fieldType)
 		if err != nil {
-			return nil, errors.Wrapf(err, "failed to transform string to type %v", fieldType)
+			return nil, errors.Wrapf(err, "field: %s failed to transform int to type %v", prefix, fieldType)
 		}
 		return newValue, nil
 	case reflect.Uint, reflect.Uint8, reflect.Uint32, reflect.Uint64:
@@ -176,7 +176,7 @@ func (m *SchemaManager) duckType(schema *spec.Schema, object interface{}, prefix
 		}
 		newValue, err := transformUint64ToType(value, fieldType)
 		if err != nil {
-			return nil, errors.Wrapf(err, "failed to transform string to type %v", fieldType)
+			return nil, errors.Wrapf(err, "field: %s failed to transform uint to type %v", prefix, fieldType)
 		}
 		return newValue, nil
 	case reflect.Float32, reflect.Float64:
@@ -188,7 +188,7 @@ func (m *SchemaManager) duckType(schema *spec.Schema, object interface{}, prefix
 		}
 		newValue, err := transformInt64ToType(value, fieldType)
 		if err != nil {
-			return nil, errors.Wrapf(err, "failed to transform string to type %v", fieldType)
+			return nil, errors.Wrapf(err, "field: %s failed to transform float to type %v", prefix, fieldType)
 		}
 		return newValue, nil
 	case reflect.Bool:
@@ -200,7 +200,7 @@ func (m *SchemaManager) duckType(schema *spec.Schema, object interface{}, prefix
 		}
 		newValue, err := transformBoolToType(value, fieldType)
 		if err != nil {
-			return nil, errors.Wrapf(err, "failed to transform bool to type %v", fieldType)
+			return nil, errors.Wrapf(err, "field: %s failed to transform bool to type %v", prefix, fieldType)
 		}
 		return newValue, nil
 	default:
@@ -430,6 +430,11 @@ func transformStringToType(value string, fieldType *TypedField) (interface{}, er
 		return value, nil
 	}
 
+	// Kubernetes encodes null strings to <no value>
+	if value == "<no value>" {
+		return nil, nil
+	}
+
 	switch fieldType.Format {
 	case "int8":
 		return strconv.ParseInt(stringToIntDefault(value), 10, 8)
@@ -454,7 +459,7 @@ func transformStringToType(value string, fieldType *TypedField) (interface{}, er
 	}
 
 	if contains(fieldType.Types, "integer") {
-		return strconv.Atoi(value)
+		return strconv.Atoi(stringToIntDefault(value))
 	}
 
 	if contains(fieldType.Types, "boolean") {
