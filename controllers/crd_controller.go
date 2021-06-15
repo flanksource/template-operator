@@ -18,6 +18,8 @@ package controllers
 
 import (
 	"context"
+	"strconv"
+
 	"github.com/flanksource/kommons"
 	"github.com/flanksource/template-operator/k8s"
 	"github.com/go-logr/logr"
@@ -30,7 +32,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
-	"strconv"
 )
 
 // CRDReconciler reconciles changes to CRD objects
@@ -41,18 +42,17 @@ type CRDReconciler struct {
 	Log              logr.Logger
 	Scheme           *runtime.Scheme
 	Cache            *k8s.SchemaCache
-	ResourceVersion	 int
-
+	ResourceVersion  int
 }
 
 // +kubebuilder:rbac:groups="*",resources="*",verbs="*"
 
-func (r *CRDReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
+func (r *CRDReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := r.Log.WithValues("crd", req.NamespacedName)
 	log.V(2).Info("crd update detected, checking cache state")
 	crd := &apiv1.CustomResourceDefinition{}
 
-	if err := r.ControllerClient.Get(context.Background(), req.NamespacedName, crd); err != nil {
+	if err := r.ControllerClient.Get(ctx, req.NamespacedName, crd); err != nil {
 		return reconcile.Result{}, err
 	}
 

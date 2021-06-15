@@ -18,6 +18,7 @@ package controllers
 
 import (
 	"context"
+
 	"github.com/flanksource/kommons"
 	templatev1 "github.com/flanksource/template-operator/api/v1"
 	"github.com/flanksource/template-operator/k8s"
@@ -72,8 +73,7 @@ type TemplateReconciler struct {
 
 // +kubebuilder:rbac:groups="*",resources="*",verbs="*"
 
-func (r *TemplateReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
-	ctx := context.Background()
+func (r *TemplateReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := r.Log.WithValues("template", req.NamespacedName)
 	name := req.NamespacedName.String()
 
