@@ -3,14 +3,14 @@ module github.com/flanksource/template-operator
 go 1.13
 
 require (
-	github.com/flanksource/commons v1.5.1
-	github.com/flanksource/kommons v0.16.0
+	github.com/flanksource/commons v1.5.6
+	github.com/flanksource/kommons v0.18.2
 	github.com/go-logr/logr v0.3.0
 	github.com/go-logr/zapr v0.3.0 // indirect
 	github.com/go-openapi/jsonpointer v0.19.3
 	github.com/go-openapi/spec v0.19.3
-	github.com/onsi/ginkgo v1.12.1
-	github.com/onsi/gomega v1.10.1
+	github.com/onsi/ginkgo v1.14.1
+	github.com/onsi/gomega v1.10.2
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.7.1
 	github.com/sirupsen/logrus v1.7.0
@@ -25,7 +25,7 @@ require (
 	k8s.io/apimachinery v0.20.4
 	k8s.io/cli-runtime v0.20.4
 	k8s.io/client-go v12.0.0+incompatible
-	sigs.k8s.io/controller-runtime v0.6.3
+	sigs.k8s.io/controller-runtime v0.8.3
 	sigs.k8s.io/kustomize v2.0.3+incompatible
 	sigs.k8s.io/yaml v1.2.0
 )
