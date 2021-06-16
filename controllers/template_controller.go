@@ -23,6 +23,8 @@ import (
 	"github.com/flanksource/template-operator/k8s"
 	"github.com/prometheus/client_golang/prometheus"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -86,9 +88,7 @@ func (r *TemplateReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		incFailed(name)
 		return reconcile.Result{}, err
 	}
-	result, err := tm.Run(ctx, template, func() {
-		r.Reconcile(ctx, req)
-	})
+	result, err := tm.Run(ctx, template, r.reconcileObject(req.NamespacedName))
 	if err != nil {
 		incFailed(name)
 		return reconcile.Result{}, err
@@ -104,6 +104,42 @@ func (r *TemplateReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&templatev1.Template{}).
 		Complete(r)
+}
+
+func (r *TemplateReconciler) reconcileObject(namespacedName types.NamespacedName) k8s.CallbackFunc {
+	return func(obj unstructured.Unstructured) error {
+		ctx := context.Background()
+		log := r.Log.WithValues("template", namespacedName)
+		name := namespacedName.String()
+		template := &templatev1.Template{}
+		if err := r.ControllerClient.Get(ctx, namespacedName, template); err != nil {
+			if kerrors.IsNotFound(err) {
+				log.Error(err, "template not found")
+				return err
+			}
+			log.Error(err, "failed to get template")
+			incFailed(name)
+			return err
+		}
+
+		//If the TemplateManager will fetch a new schema, ensure the kommons.client also does so in order to ensure they contain the same information
+		if r.Cache.SchemaHasExpired() {
+			r.KommonsClient.ResetRestMapper()
+		}
+		tm, err := k8s.NewTemplateManager(r.KommonsClient, log, r.Cache, r.Events, r.Watcher)
+		if err != nil {
+			incFailed(name)
+			return err
+		}
+		_, err = tm.HandleSource(ctx, template, obj)
+		if err != nil {
+			incFailed(name)
+			return err
+		}
+		incSuccess(name)
+
+		return nil
+	}
 }
 
 func incSuccess(name string) {

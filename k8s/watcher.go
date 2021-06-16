@@ -2,6 +2,7 @@ package k8s
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/pkg/errors"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/informers"
@@ -19,7 +21,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 )
 
-type CallbackFunc func()
+type CallbackFunc func(unstructured.Unstructured) error
 
 type WatcherInterface interface {
 	Watch(exampleObject runtime.Object, template *templatev1.Template, cb CallbackFunc) error
@@ -90,15 +92,13 @@ func (w *Watcher) Watch(exampleObject runtime.Object, template *templatev1.Templ
 	})
 
 	informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
-		// When a new pod gets created
 		AddFunc: func(obj interface{}) {
 			logger.Debugf("Received callback for object added: %v", obj)
-			cb()
+			w.onUpdate(obj, cb)
 		},
-		// When a pod gets updated
 		UpdateFunc: func(oldObj interface{}, obj interface{}) {
 			logger.Debugf("Received callback for object updated: %v", obj)
-			cb()
+			w.onUpdate(obj, cb)
 		},
 		// When a pod gets deleted
 		DeleteFunc: func(obj interface{}) {
@@ -110,6 +110,23 @@ func (w *Watcher) Watch(exampleObject runtime.Object, template *templatev1.Templ
 	go informer.Run(stopper)
 
 	return nil
+}
+
+func (w *Watcher) onUpdate(obj interface{}, cb CallbackFunc) {
+	js, err := json.Marshal(obj)
+	if err != nil {
+		logger.Errorf("failed to marshal object for update: %v", err)
+		return
+	}
+	unstr := &unstructured.Unstructured{}
+	if err := json.Unmarshal(js, &unstr.Object); err != nil {
+		logger.Errorf("failed to unmarshal into unstructured for update: %v", err)
+		return
+	}
+
+	if err := cb(*unstr); err != nil {
+		logger.Errorf("failed to run callback: %v", err)
+	}
 }
 
 func getCacheKey(obj runtime.Object, template *templatev1.Template) string {
