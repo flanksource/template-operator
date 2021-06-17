@@ -18,6 +18,7 @@ package main
 
 import (
 	"flag"
+	apiv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	"os"
 	"time"
 
@@ -49,6 +50,7 @@ func init() {
 
 	_ = templatingflanksourcecomv1.AddToScheme(scheme)
 	apiv1.AddToScheme(scheme)
+	apiv1beta1.AddToScheme(scheme)
 	// +kubebuilder:scaffold:scheme
 
 	yaml.FutureLineWrap()
@@ -103,20 +105,24 @@ func main() {
 	schemaCache := k8s.NewSchemaCache(clientset, expire, ctrl.Log.WithName("schema-cache"))
 
 	if err = (&controllers.TemplateReconciler{
-		Client: client,
-		Cache:  schemaCache,
-		Log:    ctrl.Log.WithName("controllers").WithName("Template"),
-		Scheme: mgr.GetScheme(),
+		Client: controllers.Client{
+			KommonsClient: client,
+			Cache:         schemaCache,
+			Log:           ctrl.Log.WithName("controllers").WithName("Template"),
+			Scheme:        mgr.GetScheme(),
+		},
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Template")
 		os.Exit(1)
 	}
 	//CRDReconciler shares a SchemaCache with TemplateReconciler, and resets it if changes to CRDs are reported, so that the TemplateReconciler will pick them up
 	if err = (&controllers.CRDReconciler{
-		Client: client,
-		Cache:  schemaCache,
-		Log:    ctrl.Log.WithName("controllers").WithName("Template"),
-		Scheme: mgr.GetScheme(),
+		Client: controllers.Client{
+			KommonsClient: client,
+			Cache:         schemaCache,
+			Log:           ctrl.Log.WithName("controllers").WithName("Template"),
+			Scheme:        mgr.GetScheme(),
+		},
 		ResourceVersion: 0,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Template")

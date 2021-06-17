@@ -885,7 +885,7 @@ func waitForAbcdTopic(ctx context.Context, name, namespace string, spec map[stri
 		if err != nil && !kerrors.IsNotFound(err) {
 			return errors.Wrapf(err, "failed to get abcd topic %s", name)
 		} else if kerrors.IsNotFound(err) {
-			if start.Add(5*time.Minute).Before(time.Now()) {
+			if start.Add(5 * time.Minute).Before(time.Now()) {
 				fmt.Printf("Waiting time exceeded")
 				return err
 			}

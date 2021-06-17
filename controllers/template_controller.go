@@ -18,17 +18,11 @@ package controllers
 
 import (
 	"context"
-
-	"github.com/flanksource/kommons"
 	templatev1 "github.com/flanksource/template-operator/api/v1"
 	"github.com/flanksource/template-operator/k8s"
-	"github.com/go-logr/logr"
 	"github.com/prometheus/client_golang/prometheus"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
@@ -63,12 +57,7 @@ func init() {
 
 // TemplateReconciler reconciles a Template object
 type TemplateReconciler struct {
-	ControllerClient client.Client
-	Client           *kommons.Client
-	Events           record.EventRecorder
-	Log              logr.Logger
-	Scheme           *runtime.Scheme
-	Cache            *k8s.SchemaCache
+	Client
 }
 
 // +kubebuilder:rbac:groups="*",resources="*",verbs="*"
@@ -89,9 +78,9 @@ func (r *TemplateReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 	//If the TemplateManager will fetch a new schema, ensure the kommons.client also does so in order to ensure they contain the same information
 	if r.Cache.SchemaHasExpired() {
-		r.Client.ResetRestMapper()
+		r.KommonsClient.ResetRestMapper()
 	}
-	tm, err := k8s.NewTemplateManager(r.Client, log, r.Cache, r.Events)
+	tm, err := k8s.NewTemplateManager(r.KommonsClient, log, r.Cache, r.Events)
 	if err != nil {
 		incFailed(name)
 		return reconcile.Result{}, err
