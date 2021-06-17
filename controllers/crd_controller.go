@@ -18,16 +18,13 @@ package controllers
 
 import (
 	"context"
+	"k8s.io/client-go/discovery"
 	"strconv"
 
-	"github.com/flanksource/kommons"
-	"github.com/flanksource/template-operator/k8s"
 	"github.com/go-logr/logr"
 	apiv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/tools/record"
+	apiv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -36,13 +33,8 @@ import (
 
 // CRDReconciler reconciles changes to CRD objects
 type CRDReconciler struct {
-	ControllerClient client.Client
-	Client           *kommons.Client
-	Events           record.EventRecorder
-	Log              logr.Logger
-	Scheme           *runtime.Scheme
-	Cache            *k8s.SchemaCache
-	ResourceVersion  int
+	Client
+	ResourceVersion int
 }
 
 // +kubebuilder:rbac:groups="*",resources="*",verbs="*"
@@ -50,12 +42,41 @@ type CRDReconciler struct {
 func (r *CRDReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := r.Log.WithValues("crd", req.NamespacedName)
 	log.V(2).Info("crd update detected, checking cache state")
-	crd := &apiv1.CustomResourceDefinition{}
+	v1, err := r.HasKind(CRDV1Group, CRDV1Version)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if v1 {
+		return r.reconcileV1(ctx, req, log)
+	}
+	return r.reconcileV1beta1(ctx, req, log)
+}
 
+func (r *CRDReconciler) reconcileV1(ctx context.Context, req ctrl.Request, log logr.Logger) (ctrl.Result, error) {
+	crd := &apiv1.CustomResourceDefinition{}
 	if err := r.ControllerClient.Get(ctx, req.NamespacedName, crd); err != nil {
 		return reconcile.Result{}, err
 	}
+	resourceVersion, err := strconv.Atoi(crd.ResourceVersion)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
 
+	if resourceVersion > r.ResourceVersion {
+		log.V(2).Info("Newer resourceVersion detected, resetting cache")
+		if err := r.resetCache(); err != nil {
+			return reconcile.Result{}, err
+		}
+		r.ResourceVersion = resourceVersion
+	}
+	return reconcile.Result{}, nil
+}
+
+func (r *CRDReconciler) reconcileV1beta1(ctx context.Context, req ctrl.Request, log logr.Logger) (ctrl.Result, error) {
+	crd := &apiv1beta1.CustomResourceDefinition{}
+	if err := r.ControllerClient.Get(ctx, req.NamespacedName, crd); err != nil {
+		return reconcile.Result{}, err
+	}
 	resourceVersion, err := strconv.Atoi(crd.ResourceVersion)
 	if err != nil {
 		return reconcile.Result{}, err
@@ -85,5 +106,20 @@ func (r *CRDReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if err != nil {
 		return err
 	}
-	return c.Watch(&source.Kind{Type: &apiv1.CustomResourceDefinition{}}, &handler.EnqueueRequestForObject{})
+	config, err := buildKubeConnectionConfig()
+	if err != nil {
+		return err
+	}
+	r.Discovery, err = discovery.NewDiscoveryClientForConfig(config)
+	if err != nil {
+		return err
+	}
+	v1, err := r.HasKind(CRDV1Group, CRDV1Version)
+	if err != nil {
+		return err
+	}
+	if v1 {
+		return c.Watch(&source.Kind{Type: &apiv1.CustomResourceDefinition{}}, &handler.EnqueueRequestForObject{})
+	}
+	return c.Watch(&source.Kind{Type: &apiv1beta1.CustomResourceDefinition{}}, &handler.EnqueueRequestForObject{})
 }
