@@ -1,15 +1,14 @@
 package controllers
 
 import (
+	"fmt"
 	"github.com/flanksource/kommons"
 	"github.com/flanksource/template-operator/k8s"
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/discovery"
-	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	controllercliconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 )
 
 const (
@@ -43,10 +42,5 @@ func (c *Client) HasKind(groupName, version string) (bool, error) {
 		}
 		return false, nil
 	}
-	c.Log.Info("Tried to discover the platform, but no discovery API is available")
-	return false, nil
-}
-
-func buildKubeConnectionConfig() (*restclient.Config, error) {
-	return controllercliconfig.GetConfig()
+	return false, fmt.Errorf("discovery API is not available")
 }

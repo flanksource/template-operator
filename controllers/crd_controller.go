@@ -19,6 +19,7 @@ package controllers
 import (
 	"context"
 	"k8s.io/client-go/discovery"
+	controllercliconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 	"strconv"
 
 	"github.com/go-logr/logr"
@@ -106,7 +107,7 @@ func (r *CRDReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if err != nil {
 		return err
 	}
-	config, err := buildKubeConnectionConfig()
+	config, err := controllercliconfig.GetConfig()
 	if err != nil {
 		return err
 	}
