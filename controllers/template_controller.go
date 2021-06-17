@@ -22,6 +22,7 @@ import (
 	templatev1 "github.com/flanksource/template-operator/api/v1"
 	"github.com/flanksource/template-operator/k8s"
 	"github.com/prometheus/client_golang/prometheus"
+	v1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
@@ -128,9 +129,31 @@ func (r *TemplateReconciler) reconcileObject(namespacedName types.NamespacedName
 		}
 		tm, err := k8s.NewTemplateManager(r.KommonsClient, log, r.Cache, r.Events, r.Watcher)
 		if err != nil {
+			log.Error(err, "failed to create template manager")
 			incFailed(name)
 			return err
 		}
+
+		namespaces, err := tm.GetSourceNamespaces(ctx, template)
+		if err != nil {
+			log.Error(err, "failed to get source namespaces")
+			incFailed(name)
+			return err
+		}
+		if len(namespaces) != 1 || namespaces[0] != v1.NamespaceAll {
+			found := false
+			for _, n := range namespaces {
+				if n == obj.GetNamespace() {
+					found = true
+					break
+				}
+			}
+			if !found {
+				log.V(2).Info("Namespace %s not found in namespaces %v\n", obj.GetNamespace(), namespaces)
+				return nil
+			}
+		}
+
 		_, err = tm.HandleSource(ctx, template, obj)
 		if err != nil {
 			incFailed(name)

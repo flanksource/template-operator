@@ -110,13 +110,8 @@ func NewTemplateManager(c *kommons.Client, log logr.Logger, cache *SchemaCache, 
 	return tm, nil
 }
 
-func (tm *TemplateManager) selectResources(ctx context.Context, template *templatev1.Template, cb CallbackFunc) ([]unstructured.Unstructured, error) {
+func (tm *TemplateManager) GetSourceNamespaces(ctx context.Context, template *templatev1.Template) ([]string, error) {
 	selector := template.Spec.Source
-
-	if selector.Kind == "" || selector.APIVersion == "" {
-		return nil, errors.New("must specify a kind and apiVersion")
-	}
-	var sources []unstructured.Unstructured
 
 	var namespaceNames []string
 	if len(selector.NamespaceSelector.MatchExpressions) == 0 && len(selector.NamespaceSelector.MatchLabels) == 0 {
@@ -138,7 +133,23 @@ func (tm *TemplateManager) selectResources(ctx context.Context, template *templa
 		}
 	}
 
-	// first iterate over selected namsespaces
+	return namespaceNames, nil
+}
+
+func (tm *TemplateManager) selectResources(ctx context.Context, template *templatev1.Template, cb CallbackFunc) ([]unstructured.Unstructured, error) {
+	selector := template.Spec.Source
+
+	if selector.Kind == "" || selector.APIVersion == "" {
+		return nil, errors.New("must specify a kind and apiVersion")
+	}
+	var sources []unstructured.Unstructured
+
+	namespaceNames, err := tm.GetSourceNamespaces(ctx, template)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to get namespaces")
+	}
+
+	// first iterate over selected namespaces
 	for _, namespace := range namespaceNames {
 		client, err := tm.Client.GetClientByKind(selector.Kind)
 		if err != nil {

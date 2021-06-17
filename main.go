@@ -105,7 +105,7 @@ func main() {
 	}
 	schemaCache := k8s.NewSchemaCache(clientset, expire, ctrl.Log.WithName("schema-cache"))
 
-	watcher, err := k8s.NewWatcher(client)
+	watcher, err := k8s.NewWatcher(client, ctrl.Log.WithName("watcher"))
 	if err != nil {
 		setupLog.Error(err, "failed to setup watcher")
 		os.Exit(1)
