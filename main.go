@@ -18,9 +18,10 @@ package main
 
 import (
 	"flag"
-	apiv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	"os"
 	"time"
+
+	apiv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 
 	"github.com/flanksource/commons/logger"
 	"github.com/flanksource/kommons"
@@ -104,12 +105,19 @@ func main() {
 	}
 	schemaCache := k8s.NewSchemaCache(clientset, expire, ctrl.Log.WithName("schema-cache"))
 
+	watcher, err := k8s.NewWatcher(client, ctrl.Log.WithName("watcher"))
+	if err != nil {
+		setupLog.Error(err, "failed to setup watcher")
+		os.Exit(1)
+	}
+
 	if err = (&controllers.TemplateReconciler{
 		Client: controllers.Client{
 			KommonsClient: client,
 			Cache:         schemaCache,
 			Log:           ctrl.Log.WithName("controllers").WithName("Template"),
 			Scheme:        mgr.GetScheme(),
+			Watcher:       watcher,
 		},
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Template")
