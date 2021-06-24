@@ -44,8 +44,9 @@ deploy: manifests
 	kustomize build config/default | kubectl apply -f -
 
 # Generate manifests e.g. CRD, RBAC etc.
-manifests: controller-gen
+manifests: controller-gen .bin/yq
 	$(CONTROLLER_GEN) $(CRD_OPTIONS) rbac:roleName=manager-role webhook paths="./..." output:crd:artifacts:config=config/crd/bases
+	$(YQ) eval -I2 -i '.spec.versions.0.schema.openAPIV3Schema.properties.spec.properties.resources.items.x-kubernetes-preserve-unknown-fields = true' config/crd/bases/templating.flanksource.com_templates.yaml
 
 static: manifests
 	mkdir -p config/deploy
@@ -90,3 +91,11 @@ CONTROLLER_GEN=$(GOBIN)/controller-gen
 else
 CONTROLLER_GEN=$(shell which controller-gen)
 endif
+
+OS   = $(shell uname -s | tr '[:upper:]' '[:lower:]')
+ARCH = $(shell uname -m | sed 's/x86_64/amd64/')
+
+.bin/yq:
+	mkdir -p .bin
+	curl -sSLo .bin/yq https://github.com/mikefarah/yq/releases/download/v4.9.6/yq_$(OS)_$(ARCH) && chmod +x .bin/yq
+YQ = $(realpath ./.bin/yq)

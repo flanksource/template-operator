@@ -240,6 +240,8 @@ spec:
                   both
                 items:
                   type: object
+                  x-kubernetes-embedded-resource: true
+                  x-kubernetes-preserve-unknown-fields: true
                 type: array
               source:
                 description: Source selects objects on which to use as a templating
