@@ -1,6 +1,6 @@
 name: kind-kind
 patches:
-  - ./test/patch1.yaml
+  - ./patch1.yaml
 domain: 127.0.0.1.nip.io
 dex:
   disabled: true
@@ -19,39 +19,50 @@ versions:
 podSubnet: 100.200.0.0/16
 serviceSubnet: 100.100.0.0/16
 calico:
+  ipip: Never
+  vxlan: Never
   version: v3.8.2
 s3:
   endpoint: http://minio.minio.svc:9000
-  externalEndpoint: minio.127.0.0.1.nip.io
-  bucket: harbor
   access_key: minio
   secret_key: minio123
   region: us-east1
-  kmsMasterKey: minio-demo-key:6368616e676520746869732070617373776f726420746f206120736563726574
   usePathStyle: true
   skipTLSVerify: true
-  e2e:
-    minio: true
 minio:
   version: RELEASE.2020-09-02T18-19-50Z
   access_key: minio
   secret_key: minio123
   replicas: 1
 ca:
-  cert: .certs/root-ca.crt
-  privateKey: .certs/root-ca.key
+  cert: ../.certs/root-ca.crt
+  privateKey: ../.certs/root-ca.key
   password: foobar
 ingressCA:
-  cert: .certs/ingress-ca.crt
-  privateKey: .certs/ingress-ca.key
+  cert: ../.certs/ingress-ca.crt
+  privateKey: ../.certs/ingress-ca.key
   password: foobar
+monitoring:
+  disabled: true
+templateOperator:
+  disabled: true
 canaryChecker:
-  version: v0.11.2
+  disabled: true
 postgresOperator:
-  version: v1.3.4.flanksource.1
-  backupBucket: e2e-postgres-backups
+  version: v1.6.2
+  defaultBackupBucket: cicd-pg-backup
+  backupPassword: password123456
+  defaultBackupRetention:
+    keepLast: 5
+    keepHourly: 2
+    keepDaily: 1
 platformOperator:
-  version: v0.7.2
+  version: v0.7.0
+  enableClusterResourceQuota: true
+  whitelistedPodAnnotations:
+    # used by filebeat
+    - com.flanksource.infra.logs/enabled
+    - co.elastic.logs/enabled
 test:
   exclude:
     - configmap-reloader

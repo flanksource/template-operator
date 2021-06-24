@@ -2,15 +2,13 @@
 
 set -e
 
-export KARINA_VERSION=v0.21.3
+export KARINA_VERSION=v0.49.0
 export KARINA="./karina -c test/config.yaml"
 export KUBECONFIG=~/.kube/config
 export DOCKER_API_VERSION=1.39
 
 if [[ "$OSTYPE" == "linux-gnu" ]]; then
-  wget -q https://github.com/flanksource/karina/releases/download/$KARINA_VERSION/platform-cli
-  mv platform-cli karina
-  # wget -q https://github.com/flanksource/karina/releases/download/$KARINA_VERSION/karina
+  wget -q https://github.com/flanksource/karina/releases/download/$KARINA_VERSION/karina
   chmod +x karina
 elif [[ "$OSTYPE" == "darwin"* ]]; then
   wget -q https://github.com/flanksource/karina/releases/download/$KARINA_VERSION/karina_osx
@@ -23,7 +21,7 @@ fi
 
 mkdir -p .bin
 
-KUSTOMIZE=./bin/kustomize
+KUSTOMIZE=./.bin/kustomize
 if [ ! -f "$KUSTOMIZE" ]; then
   curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh"  | bash
   mv kustomize .bin
@@ -32,16 +30,15 @@ export PATH=$(pwd)/.bin:$PATH
 
 $KARINA ca generate --name root-ca --cert-path .certs/root-ca.crt --private-key-path .certs/root-ca.key --password foobar  --expiry 1
 $KARINA ca generate --name ingress-ca --cert-path .certs/ingress-ca.crt --private-key-path .certs/ingress-ca.key --password foobar  --expiry 1
-$KARINA provision kind-cluster
+$KARINA provision kind-cluster -vvvvv
 
-$KARINA deploy crds
-$KARINA deploy calico
-kubectl -n kube-system set env daemonset/calico-node FELIX_IGNORELOOSERPF=true
-
-$KARINA deploy base
-$KARINA deploy minio
-$KARINA deploy stubs
+$KARINA deploy bootstrap
 $KARINA deploy postgres-operator
+export IMG=flanksource/template-operator:v1
+make docker-build
+kind load docker-image $IMG --name kind-kind
+
+make deploy
 
 kubectl apply -f examples/postgres-operator.yml
 kubectl apply -f examples/namespacerequest.yml
@@ -49,12 +46,6 @@ kubectl apply -f examples/for-each.yml
 kubectl apply -f examples/when.yaml
 kubectl apply -f test/fixtures/awx-operator.yml
 kubectl apply -f test/fixtures/depends-on.yaml
-
-export IMG=flanksource/template-operator:v1
-make docker-build
-kind load docker-image $IMG --name kind-kind
-
-make deploy
 
 go run test/e2e.go
 

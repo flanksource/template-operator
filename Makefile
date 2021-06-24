@@ -46,7 +46,6 @@ deploy: manifests
 # Generate manifests e.g. CRD, RBAC etc.
 manifests: controller-gen .bin/yq
 	$(CONTROLLER_GEN) $(CRD_OPTIONS) rbac:roleName=manager-role webhook paths="./..." output:crd:artifacts:config=config/crd/bases
-	$(YQ) eval -I2 -i '.spec.versions.0.schema.openAPIV3Schema.properties.spec.properties.resources.items.x-kubernetes-embedded-resource = true' config/crd/bases/templating.flanksource.com_templates.yaml
 	$(YQ) eval -I2 -i '.spec.versions.0.schema.openAPIV3Schema.properties.spec.properties.resources.items.x-kubernetes-preserve-unknown-fields = true' config/crd/bases/templating.flanksource.com_templates.yaml
 
 static: manifests
