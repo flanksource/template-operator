@@ -1,0 +1,56 @@
+name: Create Release
+on:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  semantic-release:
+    runs-on: ubuntu-latest
+    outputs:
+      release-version: ${{ steps.semantic.outputs.release-version }}
+      new-release-published: ${{ steps.semantic.outputs.new-release-published }}
+    steps:
+      - uses: actions/checkout@v2
+      - uses: codfish/semantic-release-action@v1
+        id: semantic
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  
+  operator:
+    needs: semantic-release
+    runs-on: ubuntu-latest
+    env:
+      VERSION: v${{ needs.semantic-release.outputs.release-version }}
+    steps:
+      - uses: actions/checkout@v2
+      - name: Build operator
+        working-directory: ./config/default/
+        run: | 
+          kustomize edit set image flanksource/template-operator:v${{ needs.semantic-release.outputs.release-version }}
+          kustomize build . > operator.yml
+      - name: Upload binaries to release
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: ./config/default/operator.yml
+          tag: v${{ needs.semantic-release.outputs.release-version }}
+          asset_name: operator.yml
+          overwrite: true
+
+  docker:
+    needs: semantic-release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Publish to Registry
+        uses: elgohr/Publish-Docker-Github-Action@master
+        env:
+          VERSION: v${{ needs.semantic-release.outputs.release-version }}"
+        with:
+          name: flanksource/template-operator
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+          snapshot: true
+          tags: "latest,v${{ needs.semantic-release.outputs.release-version }}"

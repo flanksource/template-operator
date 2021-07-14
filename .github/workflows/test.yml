@@ -21,3 +21,12 @@ jobs:
         env:
           KUBERNETES_VERSION: ${{matrix.k8s}}
         run: ./test/e2e.sh
+      - name: Export logs
+        if: always()
+        run: kind --name kind-kind export logs ./logs
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v2
+        with:
+          name: log
+          path: ./logs

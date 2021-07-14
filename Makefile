@@ -1,6 +1,14 @@
 
+
+
+ifeq ($(VERSION),)
+  VERSION_TAG=$(shell git describe --abbrev=0 --tags --exact-match 2>/dev/null || echo dev)
+else
+  VERSION_TAG=$(VERSION)
+endif
+
 # Image URL to use all building/pushing image targets
-IMG ?= flanksource/template-operator:v1
+IMG ?= flanksource/template-operator:${VERSION_TAG}
 # Produce CRDs that work back to Kubernetes 1.11 (no version conversion)
 CRD_OPTIONS ?= "crd:trivialVersions=false"
 
