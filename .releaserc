@@ -6,8 +6,8 @@ plugins:
         - { type: chore, release: patch }
         - { type: refactor, release: patch }
         - { type: feat, release: minor }
-        - { type: ci, release: false }
-        - { type: style, release: false }
+        - { type: ci, release: patch }
+        - { type: style, release: patch }
       parserOpts:
         noteKeywords:
           - MAJOR RELEASE
