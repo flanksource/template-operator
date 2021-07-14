@@ -21,7 +21,7 @@ jobs:
   operator:
     needs: semantic-release
     runs-on: ubuntu-latest
-    if: needs.semantic-release.outputs.release-version-published == 'true'
+    if: needs.semantic-release.outputs.new-release-published == 'true'
     env:
       VERSION: v${{ needs.semantic-release.outputs.release-version }}
     steps:
@@ -43,7 +43,7 @@ jobs:
   docker:
     needs: semantic-release
     runs-on: ubuntu-latest
-    if: needs.semantic-release.outputs.release-version-published == 'true'
+    if: needs.semantic-release.outputs.new-release-published == 'true'
     steps:
       - uses: actions/checkout@v2
       - name: Publish to Registry
