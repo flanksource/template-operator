@@ -1,0 +1,7 @@
+namespace: template-operator
+
+bases:
+- ../default
+
+resources:
+  - namespace.yaml

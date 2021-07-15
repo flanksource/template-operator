@@ -14,7 +14,7 @@ plugins:
   - "@semantic-release/release-notes-generator"
   - - "@semantic-release/github"
     - assets:
-      - path: ./config/default/operator.yml
+      - path: ./config/release/operator.yml
         name: operator.yml
 branches:
   - main

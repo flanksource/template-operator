@@ -27,7 +27,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - name: Build operator
-        working-directory: ./config/default/
+        working-directory: ./config/release/
         run: | 
           kustomize edit set image flanksource/template-operator:v${{ needs.semantic-release.outputs.release-version }}
           kustomize build . > operator.yml
@@ -35,7 +35,7 @@ jobs:
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: ./config/default/operator.yml
+          file: ./config/release/operator.yml
           tag: v${{ needs.semantic-release.outputs.release-version }}
           asset_name: operator.yml
           overwrite: true
