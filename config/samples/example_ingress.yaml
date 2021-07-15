@@ -2,7 +2,7 @@ apiVersion: extensions/v1beta1
 kind: Ingress
 metadata:
   name: example-ingress
-  namespace: platform-system
+  namespace: template-operator
   labels:
     "platform.flanksource.com/autocomplete-ingress-domain": "true"
 spec:

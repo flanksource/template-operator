@@ -1,5 +1,5 @@
 # Adds namespace to all resources.
-namespace: platform-system
+namespace: template-operator
 
 namePrefix: template-operator-
 

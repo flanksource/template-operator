@@ -2,13 +2,13 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: template-operator-manager
-  namespace: platform-system
+  namespace: template-operator
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: template-operator-leader-election-role
-  namespace: platform-system
+  namespace: template-operator
 rules:
 - apiGroups:
   - ""
@@ -54,7 +54,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: template-operator-leader-election-rolebinding
-  namespace: platform-system
+  namespace: template-operator
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -62,7 +62,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: template-operator-manager
-  namespace: platform-system
+  namespace: template-operator
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -75,7 +75,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: template-operator-manager
-  namespace: platform-system
+  namespace: template-operator
 ---
 apiVersion: v1
 kind: Service
@@ -85,7 +85,7 @@ metadata:
   labels:
     control-plane: template-operator
   name: template-operator-template-operator
-  namespace: platform-system
+  namespace: template-operator
 spec:
   ports:
   - name: prometheus
@@ -100,7 +100,7 @@ metadata:
   labels:
     control-plane: template-operator
   name: template-operator-controller-manager
-  namespace: platform-system
+  namespace: template-operator
 spec:
   replicas: 1
   selector:

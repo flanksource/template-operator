@@ -1,3 +1,8 @@
+kind: Namespace
+apiVersion: v1
+metadata:
+  name: template-operator
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -46,7 +51,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: template-operator
-  namespace: platform-system
+  namespace: template-operator
   annotations:
     prometheus.io/scrape: "true"
   labels:
