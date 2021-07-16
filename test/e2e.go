@@ -34,7 +34,7 @@ import (
 )
 
 const (
-	namespace  = "platform-system"
+	namespace  = "template-operator"
 	deployment = "template-operator-controller-manager"
 )
 

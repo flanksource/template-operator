@@ -128,7 +128,7 @@ metadata:
   # Disable reload/all in tests
   annotations: null
   name: platform-operator
-  namespace: platform-system
+  namespace: template-operator
 spec:
   replicas: 1
   template:
@@ -148,7 +148,7 @@ metadata:
   # Disable reload/all in tests
   annotations: null
   name: canary-checker
-  namespace: platform-system
+  namespace: template-operator
 spec:
   template:
     metadata:
