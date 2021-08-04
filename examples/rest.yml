@@ -1,0 +1,36 @@
+apiVersion: templating.flanksource.com/v1
+kind: REST
+metadata:
+  name: "example-alertmanager"
+spec:
+  auth:
+    username: foo
+    password: bar
+  headers:
+    Content-Type: application/json
+  update:
+    url: http://alertmanager-main.monitoring:9093/api/v2/silences
+    method: POST
+    body: |
+      {
+        "matchers": [
+          {
+            "name": "alertname",
+            "value": "ExcessivePodCPURatioS",
+            "isRegex": false,
+            "isEqual": true
+          }
+        ],
+        {{ if .status.silenceID }}
+          "id": "{{ .status.silenceID }}",
+        {{ end }}
+        "startsAt": "2021-07-14T10:19:19.862Z",
+        "endsAt": "2021-11-14T10:19:19.862Z",
+        "createdBy": "template-operator",
+        "comment": "Automatically created by template operator REST"
+      }
+    status:
+      silenceID: "{{ .response.silenceID }}"
+  remove:
+    method: DELETE
+    url: http://alertmanager-main.monitoring:9093/api/v2/silence/{{.status.silenceID }}

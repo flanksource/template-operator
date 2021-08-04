@@ -136,6 +136,18 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "Template")
 		os.Exit(1)
 	}
+	if err = (&controllers.RESTReconciler{
+		Client: controllers.Client{
+			KommonsClient: client,
+			Cache:         schemaCache,
+			Log:           ctrl.Log.WithName("controllers").WithName("Template"),
+			Scheme:        mgr.GetScheme(),
+			Watcher:       watcher,
+		},
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "REST")
+		os.Exit(1)
+	}
 	// +kubebuilder:scaffold:builder
 
 	setupLog.Info("starting manager")
