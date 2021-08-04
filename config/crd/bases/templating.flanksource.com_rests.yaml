@@ -62,6 +62,12 @@ spec:
                     description: 'Method represents HTTP method to be used for the
                       request. Example: POST'
                     type: string
+                  status:
+                    additionalProperties:
+                      type: string
+                    description: Status defines the status fields which will be updated
+                      based on response status
+                    type: object
                   url:
                     description: URL represents the URL used for the request
                     type: string
