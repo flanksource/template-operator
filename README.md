@@ -274,3 +274,7 @@ store-7674            development-secrets-api          Opaque   1      5s
 store-7674            development-secrets-username     Opaque   1      5s
 ```
 
+[crossplane]: https://crossplane.io/  "Crossplane"
+[kyverno]: https://kyverno.io/  "Kyverno"
+[helm]: https://helm.sh/ "Helm"
+
