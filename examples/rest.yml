@@ -16,7 +16,7 @@ spec:
         "matchers": [
           {
             "name": "alertname",
-            "value": "ExcessivePodCPURatioS",
+            "value": "ExcessivePodCPURatio",
             "isRegex": false,
             "isEqual": true
           }

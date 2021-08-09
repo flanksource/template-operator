@@ -46,10 +46,6 @@ func (r *RESTManager) Update(ctx context.Context, rest *templatev1.REST) error {
 		return nil
 	}
 
-	if rest.Status == nil {
-		rest.Status = map[string]string{}
-	}
-
 	url := rest.Spec.Update.URL
 	method := rest.Spec.Update.Method
 	body := rest.Spec.Update.Body
@@ -82,10 +78,6 @@ func (r *RESTManager) Update(ctx context.Context, rest *templatev1.REST) error {
 }
 
 func (r *RESTManager) Delete(ctx context.Context, rest *templatev1.REST) error {
-	if rest.Status == nil {
-		rest.Status = map[string]string{}
-	}
-
 	url := rest.Spec.Remove.URL
 	method := rest.Spec.Remove.Method
 	body := rest.Spec.Remove.Body

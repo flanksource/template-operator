@@ -794,6 +794,7 @@ metadata:
 spec:
   backup:
     bucket: e2e-postgres-backups
+    restic: false
   cpu: "0.5"
   memory: 6Gi
   parameters:

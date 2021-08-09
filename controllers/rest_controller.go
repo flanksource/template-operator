@@ -132,16 +132,7 @@ func (r *RESTReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 			return ctrl.Result{}, err
 		}
 
-		// refresh object to avoid getting error:  the object has been modified; please apply your changes to the latest version and try again
-		if err := r.ControllerClient.Get(ctx, req.NamespacedName, rest); err != nil {
-			if kerrors.IsNotFound(err) {
-				log.Error(err, "rest not found")
-				return reconcile.Result{}, nil
-			}
-			log.Error(err, "failed to get rest")
-			incRESTFailed(name)
-			return reconcile.Result{}, err
-		}
+		return ctrl.Result{}, nil
 	}
 
 	err = tm.Update(ctx, rest)
