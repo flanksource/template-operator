@@ -5,4 +5,4 @@ kind: Kustomization
 images:
 - name: controller
   newName: flanksource/template-operator
-  newTag: v1
+  newTag: dev

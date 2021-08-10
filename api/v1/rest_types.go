@@ -17,6 +17,7 @@ limitations under the License.
 package v1
 
 import (
+	"github.com/flanksource/kommons"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -27,7 +28,7 @@ type RESTSpec struct {
 
 	// Auth may be used for http basic authentication
 	// +optional
-	Auth RESTAuth `json:"auth,omitempty"`
+	Auth *RESTAuth `json:"auth,omitempty"`
 
 	// Headers are optional http headers to be sent on the request
 	// +optional
@@ -42,9 +43,11 @@ type RESTSpec struct {
 
 type RESTAuth struct {
 	// Username represents the HTTP Basic Auth username
-	Username string `json:"username,omitempty"`
+	Username kommons.EnvVarSource `json:"username,omitempty"`
 	// Password represents the HTTP Basic Auth password
-	Password string `json:"password,omitempty"`
+	Password kommons.EnvVarSource `json:"password,omitempty"`
+	// Namespace where secret / config map is present
+	Namespace string `json:"namespace,omitempty"`
 }
 
 type RESTAction struct {

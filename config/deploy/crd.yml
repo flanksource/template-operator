@@ -37,12 +37,61 @@ spec:
               auth:
                 description: Auth may be used for http basic authentication
                 properties:
+                  namespace:
+                    description: Namespace where secret / config map is present
+                    type: string
                   password:
                     description: Password represents the HTTP Basic Auth password
-                    type: string
+                    properties:
+                      configMapKeyRef:
+                        properties:
+                          key:
+                            type: string
+                          name:
+                            type: string
+                          optional:
+                            type: boolean
+                        required:
+                        - key
+                        type: object
+                      secretKeyRef:
+                        properties:
+                          key:
+                            type: string
+                          name:
+                            type: string
+                          optional:
+                            type: boolean
+                        required:
+                        - key
+                        type: object
+                    type: object
                   username:
                     description: Username represents the HTTP Basic Auth username
-                    type: string
+                    properties:
+                      configMapKeyRef:
+                        properties:
+                          key:
+                            type: string
+                          name:
+                            type: string
+                          optional:
+                            type: boolean
+                        required:
+                        - key
+                        type: object
+                      secretKeyRef:
+                        properties:
+                          key:
+                            type: string
+                          name:
+                            type: string
+                          optional:
+                            type: boolean
+                        required:
+                        - key
+                        type: object
+                    type: object
                 type: object
               headers:
                 additionalProperties:

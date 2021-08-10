@@ -3,6 +3,7 @@ package k8s
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -122,10 +123,15 @@ func (r *RESTManager) doRequest(ctx context.Context, rest *templatev1.REST, url,
 		}
 	}
 
-	fmt.Printf("Sending Request:\n")
-	fmt.Printf("URL: %s\n", newURL)
-	fmt.Printf("Method: %s\n", method)
-	fmt.Printf("Body:\n%s\n", newBody)
+	if rest.Spec.Auth != nil {
+		basicAuth, err := getRestAuthorization(r.Client, rest.Spec.Auth)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to generate basic auth")
+		}
+		req.Header.Set("Authorization", basicAuth)
+	}
+
+	r.Log.V(3).Info("Sending Request:", "url", newURL, "method", method, "body", newBody)
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -133,7 +139,7 @@ func (r *RESTManager) doRequest(ctx context.Context, rest *templatev1.REST, url,
 	}
 	defer resp.Body.Close()
 
-	fmt.Printf("Status code: %d\n", resp.StatusCode)
+	r.Log.V(3).Info("Response:", "statusCode", resp.StatusCode)
 
 	bodyBytes, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
@@ -214,4 +220,18 @@ func sameGeneration(rest *templatev1.REST) bool {
 	}
 
 	return gen == rest.ObjectMeta.Generation
+}
+
+func getRestAuthorization(client *kommons.Client, auth *templatev1.RESTAuth) (string, error) {
+	_, username, err := client.GetEnvValue(kommons.EnvVar{Name: "username", ValueFrom: &auth.Username}, auth.Namespace)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to get username value")
+	}
+	_, password, err := client.GetEnvValue(kommons.EnvVar{Name: "password", ValueFrom: &auth.Password}, auth.Namespace)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to get username value")
+	}
+
+	basicAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(username+":"+password))
+	return basicAuth, nil
 }
