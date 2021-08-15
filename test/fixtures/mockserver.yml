@@ -39,7 +39,7 @@ spec:
   - port: 80
     targetPort: 1080
 ---
-apiVersion: networking.k8s.io/v1
+apiVersion: networking.k8s.io/v1beta1
 kind: Ingress
 metadata:
   name: mockserver
@@ -56,8 +56,5 @@ spec:
       http:
         paths:
           - backend:
-              service:
-                name: mockserver
-                port:
-                  number: 80
-            pathType: ImplementationSpecific
+              serviceName: mockserver
+              servicePort: 80
