@@ -1,10 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"crypto/tls"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io/ioutil"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -52,6 +56,7 @@ var (
 		"when-true":                    TestWhenConditional,
 		"when-false":                   TestWhenConditionalFalse,
 		"depends-on":                   TestDependsOnAttribute,
+		"rest-template":                TestRestTemplate,
 	}
 	scheme              = runtime.NewScheme()
 	restConfig          *rest.Config
@@ -61,6 +66,21 @@ var (
 type Test func(context.Context, *console.TestResults) error
 type DeferFunc func()
 type deploymentFn func(*appsv1.Deployment) bool
+
+type MockserverRequest struct {
+	ContentLength int                 `json:"content_length"`
+	ContentType   string              `json:"content_type"`
+	Time          int                 `json:"time"`
+	Method        string              `json:"method"`
+	Path          string              `json:"path"`
+	Body          string              `json:"body"`
+	Headers       map[string][]string `json:"headers"`
+	QueryString   map[string][]string `json:"query_string"`
+}
+
+type MockserverExpectation struct {
+	ID string `json:"id"`
+}
 
 func main() {
 	var kubeconfig *string
@@ -722,6 +742,141 @@ func TestDependsOnAttribute(ctx context.Context, test *console.TestResults) erro
 	return nil
 }
 
+func TestRestTemplate(ctx context.Context, test *console.TestResults) error {
+	testName := "TestRestTemplate"
+	mockserverUrl := "https://mockserver.127.0.0.1.nip.io"
+
+	if err := clearExpectations(mockserverUrl); err != nil {
+		logger.Errorf("failed to clear expectations: %v", err)
+	}
+
+	defer func() {
+		if err := clearExpectations(mockserverUrl); err != nil {
+			logger.Errorf("failed to clear expectations: %v", err)
+		}
+	}()
+
+	generatedID := utils.RandomString(10)
+
+	updateExpectationID, err := createRestUpdateExpectation(mockserverUrl, generatedID)
+	if err != nil {
+		test.Failf(testName, "failed to create update expectation: %v", err)
+		return err
+	}
+
+	deleteExpectationID, err := createRestDeleteExpectation(mockserverUrl, generatedID)
+	if err != nil {
+		test.Failf(testName, "failed to create delete expectation: %v", err)
+		return err
+	}
+
+	restName := fmt.Sprintf("rest-example")
+	rest := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "templating.flanksource.com/v1",
+			"kind":       "REST",
+			"metadata": map[string]interface{}{
+				"name": restName,
+			},
+			"spec": map[string]interface{}{
+				"headers": map[string]string{
+					"Content-Type": "application/json",
+				},
+				"update": map[string]interface{}{
+					"url":    "http://mockserver.mockserver:80/api/v2/silences",
+					"method": "POST",
+					"body": `	
+						{
+							"matchers": [
+								{
+									"name": "alertname",
+									"value": "ExcessivePodCPURatio",
+									"isRegex": false,
+									"isEqual": true
+								}
+							],
+							{{ if .status.silenceID }}
+								"id": "{{ .status.silenceID }}",
+							{{ end }}
+							"startsAt": "2021-07-14T10:19:19.862Z",
+							"endsAt": "2021-11-14T10:19:19.862Z",
+							"createdBy": "template-operator",
+							"comment": "Automatically created by template operator REST"
+						}
+`,
+					"status": map[string]string{
+						"silenceID": "{{ .response.silenceID }}",
+					},
+				},
+				"remove": map[string]interface{}{
+					"method": "DELETE",
+					"url":    "http://mockserver.mockserver:80/api/v2/silence/{{.status.silenceID }}",
+				},
+			},
+		},
+	}
+
+	if err := client.Apply("", rest); err != nil {
+		test.Failf(testName, "failed to create test app: %v", err)
+		return err
+	}
+
+	defer func() {
+		if deleteErr := forceDeleteRest(client, rest); deleteErr != nil {
+			logger.Errorf("failed to delete rest %s: %v", restName, deleteErr)
+		}
+	}()
+
+	if err := waitForUpdateExpectation(mockserverUrl, updateExpectationID); err != nil {
+		test.Failf(testName, "failed to wait for update expectation: %v", err)
+		return err
+	}
+
+	test.Passf(testName, "Operator called update API %s", restName)
+
+	newRest, err := client.GetByKind("REST", "", restName)
+	if err != nil {
+		test.Failf(testName, "failed to get rest object: %v", err)
+		return err
+	}
+	status, ok := newRest.Object["status"].(map[string]interface{})
+	if !ok {
+		err = errors.Errorf("failed to cast rest status to map")
+		test.Failf(testName, err.Error())
+		return err
+	}
+	silenceIDi, found := status["silenceID"]
+	if !found {
+		err = errors.Errorf("did not found silenceID field in rest status")
+		test.Failf(testName, err.Error())
+		return err
+	}
+	silenceID, ok := silenceIDi.(string)
+	if !ok {
+		err = errors.Errorf("expected status.silenceID to be string")
+		test.Failf(testName, err.Error())
+		return err
+	}
+
+	if silenceID != generatedID {
+		err = errors.Errorf("expected silenceID to equal %s, got %s", generatedID, silenceID)
+		test.Failf(testName, err.Error())
+		return err
+	}
+
+	if err := client.DeleteUnstructured("", rest); err != nil {
+		logger.Errorf("failed to delete rest %s: %v", restName, err)
+	}
+
+	if err := waitForDeleteExpectation(mockserverUrl, deleteExpectationID, silenceID); err != nil {
+		test.Failf(testName, "failed to wait for delete expectation: %v", err)
+		return err
+	}
+
+	test.Passf(testName, "Operator called delete API %s", restName)
+	return nil
+}
+
 func waitForDeploymentChanged(ctx context.Context, deployment *appsv1.Deployment, fn deploymentFn) (*appsv1.Deployment, error) {
 	for {
 		d, err := k8s.AppsV1().Deployments(deployment.Namespace).Get(ctx, deployment.Name, metav1.GetOptions{})
@@ -921,6 +1076,210 @@ func readFixture(path string) (*templatev1.Template, error) {
 	}
 
 	return template, nil
+}
+
+func createRestUpdateExpectation(url string, generatedID string) (string, error) {
+	requestBody := `{
+	"httpRequest": {
+			"method": "POST",
+			"path": "/api/v2/silences",
+	},
+	"httpResponseTemplate": {
+		"template": "return { statusCode: 200, body: JSON.stringify({silenceID: '%s' }) };",
+		"templateType": "JAVASCRIPT"
+	}
+}
+`
+	return createExpectation(url, fmt.Sprintf(requestBody, generatedID))
+}
+
+func createRestDeleteExpectation(url string, generatedID string) (string, error) {
+	requestBody := ` {
+	"httpRequest": {
+			"method": "DELETE",
+			"path": "/api/v2/silence/{silenceId}",
+			"pathParameters": {
+				"silenceId": [{
+						"schema": {
+								"type": "string",
+								"pattern": "^[a-z0-9A-Z-]+$"
+						}
+				}],
+			}
+	},
+	"httpResponse": {
+		"body": "{}"
+	}
+}
+`
+	return createExpectation(url, requestBody)
+}
+
+func createExpectation(baseUrl string, template string) (string, error) {
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+	client := &http.Client{Transport: tr}
+	url := baseUrl + "/mockserver/expectation"
+	req, err := http.NewRequest("PUT", url, bytes.NewBuffer([]byte(template)))
+	if err != nil {
+		return "", errors.Wrap(err, "failed to create http request")
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to send put request")
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to read response body")
+	}
+
+	if resp.StatusCode != http.StatusCreated {
+		return "", errors.Errorf("expected status code 201, got %d, body: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	data := []MockserverExpectation{}
+	if err := json.Unmarshal(bodyBytes, &data); err != nil {
+		return "", errors.Wrap(err, "failed to unmarshal body")
+	}
+
+	if len(data) != 1 {
+		return "", errors.Errorf("expected create expectation response data to have length 1, got: %d", len(data))
+	}
+
+	return data[0].ID, nil
+}
+
+func waitForUpdateExpectation(url, expectationID string) error {
+	ctx, _ := context.WithTimeout(context.Background(), 2*time.Minute)
+	requestBody := `{
+	"httpRequest": {
+		"method": "POST",
+		"path": "/api/v2/silences"
+	},
+	"times": {
+		"atLeast": 1,
+		"atMost": 1
+	}
+}
+`
+	return waitForExpectation(ctx, url, expectationID, requestBody)
+}
+
+func waitForDeleteExpectation(url, expectationID, silenceID string) error {
+	ctx, _ := context.WithTimeout(context.Background(), 2*time.Minute)
+	requestBody := `{
+	"httpRequest": {
+		"method": "DELETE",
+		"path": "/api/v2/silence/%s"
+	},
+	"times": {
+		"atLeast": 1,
+		"atMost": 1
+	}
+}
+`
+	return waitForExpectation(ctx, url, expectationID, fmt.Sprintf(requestBody, silenceID))
+}
+
+func waitForExpectation(ctx context.Context, baseUrl, expectationID, template string) error {
+	for {
+		tr := &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		}
+		client := &http.Client{Transport: tr}
+		url := baseUrl + "/mockserver/verify"
+		req, err := http.NewRequest("PUT", url, bytes.NewBuffer([]byte(template)))
+		req.Header.Add("Content-Type", "application/json")
+		if err != nil {
+			return errors.Wrap(err, "failed to create http request")
+		}
+		req = req.WithContext(ctx)
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return errors.Wrap(err, "failed to send put request")
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode == http.StatusAccepted {
+			return nil
+		}
+		bodyBytes, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			return errors.Wrap(err, "failed to read response body")
+		}
+
+		log.Debugf("expectation could not be verified, statusCode: %d, sleeping... ", resp.StatusCode)
+		log.Debugf("response body was: %s\n", string(bodyBytes))
+
+		time.Sleep(5 * time.Second)
+	}
+}
+
+func clearExpectations(baseUrl string) error {
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+	client := &http.Client{Transport: tr}
+	url := baseUrl + "/mockserver/reset"
+	req, err := http.NewRequest("PUT", url, nil)
+	if err != nil {
+		return errors.Wrap(err, "failed to create http request")
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return errors.Wrap(err, "failed to send put request")
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusAccepted {
+		return errors.Errorf("expected status code 202, got: %d", resp.StatusCode)
+	}
+
+	return nil
+}
+
+// forceDeleteRest takes care of the finalizers on rest object.
+// template operator is adding finalizers so it can reconcile on objects deleted
+// when an object is deleted the operator first runs the delete API call and then removes the finalizer.
+// If the delete API call defined by REST fails forver due to misconfiguration the operator will try to reconcile the object forever.
+func forceDeleteRest(client *kommons.Client, rest *unstructured.Unstructured) error {
+	i, err := client.GetClientByKind("REST")
+	if err != nil {
+		return errors.Wrap(err, "failed to get k8s client for REST")
+	}
+
+	r, err := i.Get(context.Background(), rest.GetName(), metav1.GetOptions{})
+	if err != nil {
+		if kerrors.IsNotFound(err) {
+			return nil
+		}
+		return errors.Wrapf(err, "failed to get rest %s for delete", rest.GetName())
+	}
+
+	if err := i.Delete(context.Background(), rest.GetName(), metav1.DeleteOptions{}); err != nil {
+		return errors.Wrapf(err, "failed to delete rest %s", rest.GetName())
+	}
+
+	// If it does not have finalizers, it means the object got deleted right away
+	if len(r.GetFinalizers()) == 0 {
+		return nil
+	}
+
+	r, err = i.Get(context.Background(), rest.GetName(), metav1.GetOptions{})
+	if err != nil {
+		return errors.Wrapf(err, "failed to get rest %s to remove finalizers", rest.GetName())
+	}
+
+	// Finalizers are removed after delete to avoid template operator reconciling on the object again and adding finalizers back
+	r.SetFinalizers([]string{})
+	if r, err = i.Update(context.Background(), r, metav1.UpdateOptions{}); err != nil {
+		return errors.Wrapf(err, "failed to delete finalizers for rest %s", rest.GetName())
+	}
+
+	return nil
 }
 
 func homeDir() string {
