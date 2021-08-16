@@ -3,6 +3,7 @@
 # It should be run by config/default
 resources:
 - bases/templating.flanksource.com_templates.yaml
+- bases/templating.flanksource.com_rests.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patchesStrategicMerge:

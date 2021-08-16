@@ -1,4 +1,9 @@
 apiVersion: v1
+kind: Namespace
+metadata:
+  name: template-operator
+---
+apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: template-operator-manager
@@ -116,7 +121,7 @@ spec:
         - --metrics-addr=0.0.0.0:8080
         - --enable-leader-election
         - --sync-period=20s
-        image: flanksource/template-operator:v1
+        image: flanksource/template-operator:dev
         name: manager
         resources:
           limits:

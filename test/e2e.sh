@@ -46,6 +46,7 @@ kubectl apply -f examples/for-each.yml
 kubectl apply -f examples/when.yaml
 kubectl apply -f test/fixtures/awx-operator.yml
 kubectl apply -f test/fixtures/depends-on.yaml
+kubectl apply -f test/fixtures/mockserver.yml
 
 go run test/e2e.go
 
