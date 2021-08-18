@@ -1,0 +1,10 @@
+apiVersion: source.toolkit.fluxcd.io/v1beta1
+kind: GitRepository
+metadata:
+  name: template-operator-dashboards
+  namespace: default
+spec:
+  interval: 5m
+  url: https://github.com/flanksource/template-operator-e2e-test
+  ref:
+    branch: master

@@ -9,6 +9,7 @@ require (
 	github.com/go-logr/zapr v0.3.0 // indirect
 	github.com/go-openapi/jsonpointer v0.19.3
 	github.com/go-openapi/spec v0.19.3
+	github.com/gobwas/glob v0.2.3 // indirect
 	github.com/onsi/ginkgo v1.14.1
 	github.com/onsi/gomega v1.10.2
 	github.com/pkg/errors v0.9.1

@@ -1,10 +1,15 @@
 package k8s
 
 import (
+	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"regexp"
 	"sort"
 	"strconv"
@@ -19,6 +24,7 @@ import (
 	"github.com/flanksource/kommons/ktemplate"
 	templatev1 "github.com/flanksource/template-operator/api/v1"
 	"github.com/go-logr/logr"
+	"github.com/gobwas/glob"
 	"github.com/pkg/errors"
 	"github.com/tidwall/gjson"
 	v1 "k8s.io/api/core/v1"
@@ -184,6 +190,15 @@ func (tm *TemplateManager) selectResources(ctx context.Context, template *templa
 
 func (tm *TemplateManager) Run(ctx context.Context, template *templatev1.Template, cb CallbackFunc) (result ctrl.Result, err error) {
 	tm.Log.Info("Reconciling", "template", template.Name)
+	if template.Spec.Source.GitRepository != nil {
+		result, err := tm.handleGitRepository(ctx, template)
+		if err != nil {
+			return result, err
+		}
+		tm.Log.V(3).Info("Reconcile Complete", "template", template.Name)
+		return result, nil
+	}
+
 	sources, err := tm.selectResources(ctx, template, cb)
 	if err != nil {
 		return
@@ -565,6 +580,139 @@ func (tm *TemplateManager) JSONPath(object interface{}, jsonpath string) (*ForEa
 	}
 
 	return nil, errors.Errorf("field %s is not map or array", jsonpath)
+}
+
+func (tm *TemplateManager) handleGitRepository(ctx context.Context, template *templatev1.Template) (result ctrl.Result, err error) {
+	source := template.Spec.Source.GitRepository
+
+	gitRepository, err := tm.getGitRepository(ctx, source.Name, source.Namespace)
+	if err != nil {
+		return ctrl.Result{}, errors.Wrap(err, "failed to get git repository")
+	}
+
+	status, ok := gitRepository.Object["status"].(map[string]interface{})
+	if !ok {
+		return ctrl.Result{}, errors.Errorf("failed to convert gitRepository.status to map")
+	}
+
+	artifact, ok := status["artifact"].(map[string]interface{})
+	if !ok {
+		return ctrl.Result{}, errors.Errorf("failed to get gitRepository.status.artifact")
+	}
+
+	url, found := artifact["url"].(string)
+	if !found {
+		return ctrl.Result{}, errors.Errorf("could not find url in gitRepository.status.artifact")
+	}
+
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+	client := &http.Client{Transport: tr}
+	resp, err := client.Get(url)
+	if resp != nil {
+		defer resp.Body.Close()
+	}
+	if err != nil {
+		return ctrl.Result{}, errors.Errorf("failed to download gitRepository archive")
+	}
+
+	files, err := tm.getGitRepositoryFiles(ctx, source, resp.Body)
+	if err != nil {
+		return ctrl.Result{}, errors.Wrap(err, "failed to get gitRepository files")
+	}
+
+	for filename, content := range files {
+		unstructuredTemplate, err := kommons.ToUnstructured(&unstructured.Unstructured{}, template)
+		if err != nil {
+			return ctrl.Result{}, errors.Wrap(err, "failed to convert template to unstructured")
+		}
+		unstructuredTemplate.Object["filename"] = filename
+		unstructuredTemplate.Object["content"] = content
+
+		result, err := tm.HandleSource(ctx, template, *unstructuredTemplate)
+		if err != nil {
+			return result, err
+		}
+	}
+
+	return ctrl.Result{}, nil
+}
+
+func (tm *TemplateManager) getGitRepositoryFiles(ctx context.Context, source *templatev1.GitRepository, archive io.ReadCloser) (map[string]string, error) {
+	files := map[string]string{}
+	g, err := glob.Compile(source.Glob, '/')
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to compile glob pattern %s", source.Glob)
+	}
+
+	gzf, err := gzip.NewReader(archive)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to read gzip archive")
+	}
+
+	tarReader := tar.NewReader(gzf)
+	i := 0
+	for {
+		header, err := tarReader.Next()
+
+		if err == io.EOF {
+			break
+		}
+
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to advance to next file in tar archive")
+		}
+
+		// name := "/" + header.Name
+		name := header.Name
+
+		switch header.Typeflag {
+		case tar.TypeDir:
+			continue
+		case tar.TypeReg:
+			if g.Match("/" + name) {
+				data, err := io.ReadAll(tarReader)
+				if err != nil {
+					return nil, errors.Wrapf(err, "failed to read file %s from tar archive", name)
+				}
+				files[name] = string(data)
+			}
+		default:
+			return nil, errors.Wrapf(err, "failed to find type of file %s", name)
+		}
+
+		i++
+	}
+
+	return files, nil
+}
+
+func (tm *TemplateManager) getGitRepository(ctx context.Context, name, namespace string) (*unstructured.Unstructured, error) {
+	dynamicClient, err := tm.Client.GetDynamicClient()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to get dynamic client")
+	}
+	rm, _ := tm.Client.GetRestMapper()
+	gvk, err := rm.KindFor(schema.GroupVersionResource{
+		Group:    "source.toolkit.fluxcd.io",
+		Version:  "v1beta1",
+		Resource: "GitRepository",
+	})
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to get kind for GitRepository")
+	}
+	gk := schema.GroupKind{Group: gvk.Group, Kind: gvk.Kind}
+	mapping, err := rm.RESTMapping(gk, gvk.Version)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to get rest mapping for GitRepository")
+	}
+	resourceInterface, err := dynamicClient.Resource(mapping.Resource), nil
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to get dynamic resource interface")
+	}
+
+	return resourceInterface.Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
 }
 
 func labelSelectorToString(l metav1.LabelSelector) (string, error) {

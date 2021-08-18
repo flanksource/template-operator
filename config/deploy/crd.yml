@@ -296,6 +296,15 @@ spec:
                     type: string
                   fieldSelector:
                     type: string
+                  gitRepository:
+                    properties:
+                      glob:
+                        type: string
+                      name:
+                        type: string
+                      namespace:
+                        type: string
+                    type: object
                   kind:
                     type: string
                   labelSelector:
@@ -419,6 +428,15 @@ spec:
                     type: string
                   fieldSelector:
                     type: string
+                  gitRepository:
+                    properties:
+                      glob:
+                        type: string
+                      name:
+                        type: string
+                      namespace:
+                        type: string
+                    type: object
                   kind:
                     type: string
                   labelSelector:
