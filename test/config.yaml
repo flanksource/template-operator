@@ -43,7 +43,7 @@ ingressCA:
   privateKey: ../.certs/ingress-ca.key
   password: foobar
 monitoring:
-  disabled: true
+  disabled: false
 templateOperator:
   disabled: true
 canaryChecker:
@@ -63,6 +63,8 @@ platformOperator:
     # used by filebeat
     - com.flanksource.infra.logs/enabled
     - co.elastic.logs/enabled
+flux:
+  enabled: true
 test:
   exclude:
     - configmap-reloader
