@@ -55,6 +55,7 @@ type TemplateStatus struct {
 }
 
 type ResourceSelector struct {
+	GitRepository      *GitRepository       `json:"gitRepository,omitempty"`
 	LabelSelector      metav1.LabelSelector `json:"labelSelector,omitempty"`
 	NamespaceSelector  metav1.LabelSelector `json:"namespaceSelector,omitempty"`
 	AnnotationSelector map[string]string    `json:"annotationSelector,omitempty"`
@@ -76,6 +77,12 @@ type JsonPatch struct {
 type CopyToNamespaces struct {
 	Namespaces        []string              `json:"namespaces,omitempty"`
 	NamespaceSelector *metav1.LabelSelector `json:"namespaceSelector,omitempty"`
+}
+
+type GitRepository struct {
+	Name      string `json:"name,omitempty"`
+	Namespace string `json:"namespace,omitempty"`
+	Glob      string `json:"glob,omitempty"`
 }
 
 // +kubebuilder:object:root=true

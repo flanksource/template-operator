@@ -21,6 +21,7 @@ import (
 	templatev1 "github.com/flanksource/template-operator/api/v1"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
+	"github.com/tidwall/gjson"
 	postgresv1 "github.com/zalando/postgres-operator/pkg/apis/acid.zalan.do/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
@@ -56,6 +57,7 @@ var (
 		"when-true":                    TestWhenConditional,
 		"when-false":                   TestWhenConditionalFalse,
 		"depends-on":                   TestDependsOnAttribute,
+		"gitrepository-source":         TestGitRepositorySource,
 		"rest-template":                TestRestTemplate,
 	}
 	scheme              = runtime.NewScheme()
@@ -742,6 +744,75 @@ func TestDependsOnAttribute(ctx context.Context, test *console.TestResults) erro
 	return nil
 }
 
+func TestGitRepositorySource(ctx context.Context, test *console.TestResults) error {
+	testName := "TestGitRepositorySource"
+
+	ns := fmt.Sprintf("test-gitrepository-source-e2e-%s", utils.RandomString(6))
+	if err := client.CreateOrUpdateNamespace(ns, nil, nil); err != nil {
+		test.Failf(testName, "failed to create namespace %s: %v", ns, err)
+		return err
+	}
+	defer func() {
+		if err := client.ForceDeleteNamespace(ns, 5*time.Minute); err != nil {
+			logger.Errorf("failed to delete namespace %s: %v", ns, err)
+		}
+	}()
+
+	template := &templatev1.Template{
+		TypeMeta:   metav1.TypeMeta{APIVersion: "templating.flanksource.com/v1", Kind: "Template"},
+		ObjectMeta: metav1.ObjectMeta{Name: "gitrepository", Namespace: ns},
+		Spec: templatev1.TemplateSpec{
+			Source: templatev1.ResourceSelector{
+				GitRepository: &templatev1.GitRepository{
+					Name:      "template-operator-dashboards",
+					Namespace: "default",
+					Glob:      "/grafana/dashboards/*.json",
+				},
+			},
+			Resources: []runtime.RawExtension{
+				{
+					Object: &unstructured.Unstructured{
+						Object: map[string]interface{}{
+							"apiVersion": "integreatly.org/v1alpha1",
+							"kind":       "GrafanaDashboard",
+							"metadata": map[string]interface{}{
+								"name":      "{{ .filename | filepath.Base }}",
+								"namespace": ns,
+								"labels": map[string]string{
+									"app": "grafana",
+								},
+							},
+							"spec": map[string]interface{}{
+								"json": "{{ .content }}",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	if err := client.Apply("", template); err != nil {
+		test.Failf(testName, "failed to create test app: %v", err)
+		return err
+	}
+
+	defer func() {
+		if err := crdK8s.Delete(context.Background(), template); err != nil {
+			log.Errorf("failed to delete template: %v", err)
+		}
+	}()
+
+	if err := waitForGrafanaDashboard(ctx, ns, "elasticsearch.json"); err != nil {
+		test.Failf(testName, "expected grafana dashboard elasticsearch.json: %v", err)
+		return err
+	}
+
+	test.Passf(testName, "GrafanaDashboard elasticsearch.json created based on git spec")
+
+	return nil
+}
+
 func TestRestTemplate(ctx context.Context, test *console.TestResults) error {
 	testName := "TestRestTemplate"
 	mockserverUrl := "https://mockserver.127.0.0.1.nip.io"
@@ -1061,6 +1132,66 @@ func waitForAbcdTopic(ctx context.Context, name, namespace string, spec map[stri
 		if !expectYamlMatch(string(specYaml), string(topicSpecYaml)) {
 			return fmt.Errorf("Spec for ABCDTopic %s does not match", name)
 		}
+		return nil
+	}
+}
+
+func waitForGrafanaDashboard(ctx context.Context, ns, name string) error {
+	dashboard := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "integreatly.org/v1alpha1",
+			"kind":       "GrafanaDashboard",
+			"metadata": map[string]interface{}{
+				"name":      "elasticsearch.json",
+				"namespace": ns,
+			},
+		},
+	}
+
+	start := time.Now()
+
+	for {
+		client, _, _, err := client.GetDynamicClientFor(ns, dashboard)
+		if err != nil {
+			return errors.Wrap(err, "failed to get client for GrafanaDashboard")
+		}
+		dash, err := client.Get(ctx, name, metav1.GetOptions{})
+		if err != nil && !kerrors.IsNotFound(err) {
+			return errors.Wrapf(err, "failed to get grafana dashboard %s", name)
+		} else if kerrors.IsNotFound(err) {
+			if start.Add(5 * time.Minute).Before(time.Now()) {
+				fmt.Printf("Waiting time exceeded")
+				return err
+			}
+			time.Sleep(2 * time.Second)
+			continue
+		}
+
+		labels := dash.GetLabels()
+		if labels["app"] != "grafana" {
+			return errors.Errorf("Expected GrafanaDashboard labels.app to equal grafana")
+		}
+
+		spec, ok := dash.Object["spec"].(map[string]interface{})
+		if !ok {
+			return errors.Errorf("failed to convert spec to map")
+		}
+
+		json, ok := spec["json"].(string)
+		if !ok {
+			return errors.Errorf("failed to get spec.json")
+		}
+
+		titleResult := gjson.Get(json, "title")
+		if titleResult.Str != "Elasticsearch" {
+			return errors.Errorf("expected dashboard title to equal Elasticsearch")
+		}
+
+		uidResult := gjson.Get(json, "uid")
+		if uidResult.Str != "miVgSWjWp" {
+			return errors.Errorf("expected dashboard uid to equal miVgSWjWp")
+		}
+
 		return nil
 	}
 }

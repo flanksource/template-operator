@@ -34,6 +34,7 @@ $KARINA provision kind-cluster -vvvvv
 
 $KARINA deploy bootstrap
 $KARINA deploy postgres-operator
+$KARINA deploy flux
 export IMG=flanksource/template-operator:v1
 make docker-build
 kind load docker-image $IMG --name kind-kind
@@ -47,6 +48,7 @@ kubectl apply -f examples/when.yaml
 kubectl apply -f test/fixtures/awx-operator.yml
 kubectl apply -f test/fixtures/depends-on.yaml
 kubectl apply -f test/fixtures/mockserver.yml
+kubectl apply -f test/fixtures/git-repository.yaml
 
 go run test/e2e.go
 
