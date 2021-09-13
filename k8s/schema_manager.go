@@ -12,8 +12,8 @@ import (
 	"github.com/go-openapi/jsonpointer"
 	"github.com/go-openapi/spec"
 	"github.com/pkg/errors"
-	extv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
-	extapi "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1beta1"
+	extv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	extapi "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -24,8 +24,10 @@ type SchemaManager struct {
 	swagger         *spec.Swagger
 	serverResources []*metav1.APIResourceList
 	clientset       *kubernetes.Clientset
-	crdClient       extapi.ApiextensionsV1beta1Interface
+	crdClient       extapi.ApiextensionsV1Interface
 	log             logr.Logger
+	fetchCrdFn      FetchCRDFn
+	convertSchemaFn ConvertSchemaFn
 }
 
 type TypedField struct {
@@ -33,9 +35,12 @@ type TypedField struct {
 	Format string
 }
 
+type FetchCRDFn func(context.Context) ([]extv1.CustomResourceDefinition, error)
+type ConvertSchemaFn func(schema.GroupVersionKind, extv1.CustomResourceDefinitionVersion) (*spec.Schema, error)
+
 type MapInterface map[string]interface{}
 
-func NewSchemaManagerWithCache(clientset *kubernetes.Clientset, crdClient extapi.ApiextensionsV1beta1Interface, cache *SchemaCache, log logr.Logger) (*SchemaManager, error) {
+func NewSchemaManagerWithCache(clientset *kubernetes.Clientset, crdClient extapi.ApiextensionsV1Interface, cache *SchemaCache, log logr.Logger) (*SchemaManager, error) {
 	s, err := cache.FetchSchema()
 	if err != nil {
 		return nil, err
@@ -52,11 +57,15 @@ func NewSchemaManagerWithCache(clientset *kubernetes.Clientset, crdClient extapi
 		clientset:       clientset,
 		crdClient:       crdClient,
 		log:             log,
+		fetchCrdFn: func(ctx context.Context) ([]extv1.CustomResourceDefinition, error) {
+			return cache.FetchCRD()
+		},
+		convertSchemaFn: cache.CachedConvertSchema,
 	}
 	return mgr, nil
 }
 
-func NewSchemaManager(clientset *kubernetes.Clientset, crdClient extapi.ApiextensionsV1beta1Interface, log logr.Logger) (*SchemaManager, error) {
+func NewSchemaManager(clientset *kubernetes.Clientset, crdClient extapi.ApiextensionsV1Interface, log logr.Logger) (*SchemaManager, error) {
 	bs, err := clientset.RESTClient().Get().AbsPath("openapi", "v2").DoRaw(context.TODO())
 	if err != nil {
 		return nil, err
@@ -78,7 +87,15 @@ func NewSchemaManager(clientset *kubernetes.Clientset, crdClient extapi.Apiexten
 		clientset:       clientset,
 		crdClient:       crdClient,
 		log:             log,
+		fetchCrdFn: func(ctx context.Context) ([]extv1.CustomResourceDefinition, error) {
+			crds, err := crdClient.CustomResourceDefinitions().List(ctx, metav1.ListOptions{})
+			if err != nil {
+				return nil, err
+			}
+			return crds.Items, nil
+		},
 	}
+	mgr.convertSchemaFn = mgr.convertSchema
 	return mgr, nil
 }
 
@@ -323,31 +340,22 @@ func (m *SchemaManager) findTypeForKey(schema *spec.Schema, key string) (*spec.S
 }
 
 func (m *SchemaManager) findSchemaForCrd(gvk schema.GroupVersionKind) (*spec.Schema, bool, error) {
-	crds, err := m.crdClient.CustomResourceDefinitions().List(context.Background(), metav1.ListOptions{})
+	crds, err := m.fetchCrdFn(context.Background())
 	if err != nil {
 		fmt.Printf("ERROR: %v\n", err)
 		return nil, false, errors.Wrap(err, "failed to list customresourcedefinitions")
 	}
 
-	for _, crd := range crds.Items {
+	for _, crd := range crds {
 		if crd.Spec.Group == gvk.Group && crd.Spec.Names.Kind == gvk.Kind {
 			for _, version := range crd.Spec.Versions {
 				if version.Name == gvk.Version {
-					schema, err := m.parseCrdSchemaVersion(version)
+					schema, err := m.parseCrdSchemaVersion(gvk, version)
 					if err != nil {
 						return nil, false, errors.Wrap(err, "failed to parse crd version schema")
 					} else if schema != nil {
 						return schema, true, nil
 					}
-				}
-			}
-
-			if crd.Spec.Version == gvk.Version {
-				schema, err := m.parseCrdSchema(crd)
-				if err != nil {
-					return nil, false, errors.Wrap(err, "failed to parse crd schema")
-				} else if schema != nil {
-					return schema, true, nil
 				}
 			}
 		}
@@ -356,29 +364,15 @@ func (m *SchemaManager) findSchemaForCrd(gvk schema.GroupVersionKind) (*spec.Sch
 	return nil, false, errors.Errorf("schema for group=%s version=%s kind=%s not found", gvk.Group, gvk.Version, gvk.Kind)
 }
 
-func (m *SchemaManager) parseCrdSchema(crd extv1beta1.CustomResourceDefinition) (*spec.Schema, error) {
-	if crd.Spec.Validation == nil || crd.Spec.Validation.OpenAPIV3Schema == nil {
-		return nil, nil
-	}
-
-	bytes, err := json.Marshal(crd.Spec.Validation.OpenAPIV3Schema)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to encode crd schema to json")
-	}
-
-	schema := &spec.Schema{}
-	if err := json.Unmarshal(bytes, schema); err != nil {
-		return nil, errors.Wrap(err, "failed to decode json into spec.Schema")
-	}
-
-	return schema, nil
-}
-
-func (m *SchemaManager) parseCrdSchemaVersion(crd extv1beta1.CustomResourceDefinitionVersion) (*spec.Schema, error) {
+func (m *SchemaManager) parseCrdSchemaVersion(gvk schema.GroupVersionKind, crd extv1.CustomResourceDefinitionVersion) (*spec.Schema, error) {
 	if crd.Schema == nil || crd.Schema.OpenAPIV3Schema == nil {
 		return nil, nil
 	}
 
+	return m.convertSchemaFn(gvk, crd)
+}
+
+func (m *SchemaManager) convertSchema(gvk schema.GroupVersionKind, crd extv1.CustomResourceDefinitionVersion) (*spec.Schema, error) {
 	bytes, err := json.Marshal(crd.Schema.OpenAPIV3Schema)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to encode crd schema to json")
@@ -386,9 +380,8 @@ func (m *SchemaManager) parseCrdSchemaVersion(crd extv1beta1.CustomResourceDefin
 
 	schema := &spec.Schema{}
 	if err := json.Unmarshal(bytes, schema); err != nil {
-		return nil, errors.Wrap(err, "failed to decode json into spec.Schema")
+		return nil, errors.Wrap(err, "failed to unmarshal schema from bytes")
 	}
-
 	return schema, nil
 }
 

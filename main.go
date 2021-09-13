@@ -33,6 +33,7 @@ import (
 	"go.uber.org/zap/zapcore"
 	"gopkg.in/yaml.v2"
 	apiv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	extapi "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
@@ -98,12 +99,23 @@ func main() {
 	}
 
 	client := kommons.NewClient(mgr.GetConfig(), logger.StandardLogger())
+	client.Logger.SetLogLevel(2)
 	clientset, err := client.GetClientset()
 	if err != nil {
 		setupLog.Error(err, "failed to get clientset")
 		os.Exit(1)
 	}
-	schemaCache := k8s.NewSchemaCache(clientset, expire, ctrl.Log.WithName("schema-cache"))
+	restConfig, err := client.GetRESTConfig()
+	if err != nil {
+		setupLog.Error(err, "failed to get rest config")
+		os.Exit(1)
+	}
+	crdClient, err := extapi.NewForConfig(restConfig)
+	if err != nil {
+		setupLog.Error(err, "failed to get crd client")
+		os.Exit(1)
+	}
+	schemaCache := k8s.NewSchemaCache(clientset, crdClient, expire, ctrl.Log.WithName("schema-cache"))
 
 	watcher, err := k8s.NewWatcher(client, ctrl.Log.WithName("watcher"))
 	if err != nil {

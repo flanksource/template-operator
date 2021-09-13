@@ -36,6 +36,10 @@ type TemplateSpec struct {
 	// +optional
 	Resources []runtime.RawExtension `json:"resources,omitempty"`
 
+	// Resources template is a template of resources to be created for each source object found
+	// +optional
+	ResourcesTemplate string `json:"resourcesTemplate,omitempty"`
+
 	// Patches is list of strategic merge patches to apply to to the targets
 	// Must specify at least resources or patches or both
 	// +optional

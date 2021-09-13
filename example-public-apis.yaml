@@ -1,0 +1,41 @@
+apiVersion: source.toolkit.fluxcd.io/v1beta1
+kind: GitRepository
+metadata:
+  name: public-apis
+  namespace: default
+spec:
+  interval: 5m
+  url: https://github.com/public-apis/public-apis
+  ref:
+    branch: master
+---
+apiVersion: templating.flanksource.com/v1
+kind: Template
+metadata:
+  name: git-repository
+spec:
+  source:
+    gitRepository:
+      namespace: default
+      name: public-apis
+      glob: "/README.md"
+  resourcesTemplate: |
+    {{- range $table := (.content | parseMarkdownTables) }}
+    {{- range $row := $table.Rows }}
+    apiVersion: canaries.flanksource.com/v1
+    kind: Canary
+    metadata:
+      name: {{ (index $row 0) | strings.Slug | strings.ReplaceAll "_" "-" }}
+      namespace: default
+      labels:
+        app: public-apis
+    spec:
+      interval: 60
+      http:
+      - description: {{ index $row 1 | strings.ReplaceAll "\"" "'" | strings.ReplaceAll ":" "" }}
+        endpoint: "{{ index $row 0 }}"
+        responseCodes: [200, 201, 202, 301, 302]
+        thresholdMillis: 2000
+    ---
+    {{- end }}
+    {{- end }}
