@@ -256,13 +256,6 @@ func (tm *TemplateManager) HandleSource(ctx context.Context, template *templatev
 	}
 	objs = append(objs, tobjs...)
 
-	bytes := []byte{}
-	for _, o := range objs {
-		b, _ := yaml.Marshal(o.Object)
-		bytes = append(bytes, b...)
-		bytes = append(bytes, []byte("\n---\n")...)
-	}
-
 	for _, obj := range objs {
 		ready, msg, err, rslt := tm.checkDependentObjects(&obj, objs)
 		if err != nil {
@@ -872,7 +865,7 @@ func (tm *TemplateManager) processTemplate(data []byte, vars interface{}) ([]byt
 		return nil, errors.Wrap(err, "failed to get unstructured objects")
 	}
 
-	fmt.Printf("Got objects count=%d\n", len(objs))
+	tm.Log.V(2).Info("Got objects on resourcesTemplate", "count", len(objs))
 
 	result := ""
 	for _, o := range objs {
