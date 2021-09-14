@@ -99,7 +99,6 @@ func main() {
 	}
 
 	client := kommons.NewClient(mgr.GetConfig(), logger.StandardLogger())
-	client.Logger.SetLogLevel(2)
 	clientset, err := client.GetClientset()
 	if err != nil {
 		setupLog.Error(err, "failed to get clientset")

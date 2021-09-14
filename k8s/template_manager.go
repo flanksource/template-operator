@@ -869,7 +869,6 @@ func (tm *TemplateManager) processTemplate(data []byte, vars interface{}) ([]byt
 
 	result := ""
 	for _, o := range objs {
-		tm.Log.Info("Duck typing object", "kind", o.GetKind(), "name", o.GetName())
 		duckTyped, err := tm.duckTypeTemplateResultObject(o)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to duck type object")
