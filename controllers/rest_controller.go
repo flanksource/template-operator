@@ -19,12 +19,15 @@ package controllers
 import (
 	"context"
 	"reflect"
+	"time"
 
+	"github.com/flanksource/commons/utils"
 	templatev1 "github.com/flanksource/template-operator/api/v1"
 	"github.com/flanksource/template-operator/k8s"
 	"github.com/prometheus/client_golang/prometheus"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -70,8 +73,10 @@ type RESTReconciler struct {
 // +kubebuilder:rbac:groups="*",resources="*",verbs="*"
 
 func (r *RESTReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	log := r.Log.WithValues("rest", req.NamespacedName)
+	log := r.Log.WithValues("rest", req.NamespacedName, "requestID", utils.RandomString(10))
 	name := req.NamespacedName.String()
+
+	log.V(2).Info("Started reconciling")
 
 	rest := &templatev1.REST{}
 	if err := r.ControllerClient.Get(ctx, req.NamespacedName, rest); err != nil {
@@ -107,6 +112,7 @@ func (r *RESTReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	}
 
 	if rest.ObjectMeta.DeletionTimestamp != nil {
+		log.V(2).Info("Object marked as deleted")
 		if err = tm.Delete(ctx, rest); err != nil {
 			return reconcile.Result{}, err
 		}
@@ -126,11 +132,14 @@ func (r *RESTReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	}
 
 	if !hasFinalizer {
+		log.V(2).Info("Setting finalizer")
 		rest.ObjectMeta.Finalizers = append(rest.ObjectMeta.Finalizers, RESTDeleteFinalizer)
 		if err := r.ControllerClient.Update(ctx, rest); err != nil {
 			log.Error(err, "failed to add finalizer to object")
+			log.V(2).Info("Finished reconciling")
 			return ctrl.Result{}, err
 		}
+		log.V(2).Info("Finalizer set, exiting reconcile")
 
 		return ctrl.Result{}, nil
 	}
@@ -143,14 +152,35 @@ func (r *RESTReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 
 	if !reflect.DeepEqual(rest.Status, oldStatus) {
 		setRestStatus(rest)
-		if err := r.ControllerClient.Status().Update(ctx, rest); err != nil {
-			log.Error(err, "failed to update status")
-			return ctrl.Result{}, err
+		if err := r.updateStatus(ctx, rest); err != nil {
+			return reconcile.Result{}, err
 		}
 	}
 
 	incRESTSuccess(name)
+	log.V(2).Info("Finished reconciling")
 	return ctrl.Result{}, nil
+}
+
+func (r *RESTReconciler) updateStatus(ctx context.Context, rest *templatev1.REST) error {
+	backoff := wait.Backoff{
+		Duration: 50 * time.Millisecond,
+		Factor:   1.5,
+		Jitter:   2,
+		Steps:    10,
+		Cap:      5 * time.Second,
+	}
+	var err error
+
+	for backoff.Steps > 0 {
+		if err = r.ControllerClient.Status().Update(ctx, rest); err == nil {
+			return nil
+		}
+		sleepDuration := backoff.Step()
+		time.Sleep(sleepDuration)
+	}
+
+	return err
 }
 
 func (r *RESTReconciler) SetupWithManager(mgr ctrl.Manager) error {
