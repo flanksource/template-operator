@@ -88,11 +88,11 @@ func (sc *SchemaCache) FetchSchema() (*spec.Swagger, error) {
 	defer sc.lock.Unlock()
 
 	if sc.resources == nil || time.Now().After(sc.schemaExpireTimestamp) {
-		sc.log.V(2).Info("before fetch schema")
+		sc.log.V(3).Info("before fetch schema")
 		if err := sc.fetchAndSetSchema(); err != nil {
 			return nil, errors.Wrap(err, "failed to refetch API schema")
 		}
-		sc.log.V(2).Info("after fetch schema")
+		sc.log.V(3).Info("after fetch schema")
 	}
 
 	return sc.schema, nil
@@ -103,11 +103,11 @@ func (sc *SchemaCache) FetchResources() ([]*metav1.APIResourceList, error) {
 	defer sc.lock.Unlock()
 
 	if sc.resources == nil || time.Now().After(sc.resourcesExpireTimestamp) {
-		sc.log.V(2).Info("before fetch resources")
+		sc.log.V(3).Info("before fetch resources")
 		if err := sc.fetchAndSetResources(); err != nil {
 			return nil, errors.Wrap(err, "failed to refetch API resources")
 		}
-		sc.log.V(2).Info("after fetch resources")
+		sc.log.V(3).Info("after fetch resources")
 	}
 	return sc.resources, nil
 }
@@ -117,14 +117,14 @@ func (sc *SchemaCache) FetchCRD() ([]extv1.CustomResourceDefinition, error) {
 	defer sc.lock.Unlock()
 
 	if sc.crds == nil || time.Now().After(sc.crdsExpireTimestamp) {
-		sc.log.V(2).Info("before fetch crds")
+		sc.log.V(3).Info("before fetch crds")
 		crds, err := sc.crdClient.CustomResourceDefinitions().List(context.Background(), metav1.ListOptions{})
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to list customresourcedefinitions")
 		}
 		sc.crds = crds.Items
 		sc.crdsExpireTimestamp = time.Now().Add(sc.expire)
-		sc.log.V(2).Info("after fetch crds")
+		sc.log.V(3).Info("after fetch crds")
 	}
 
 	return sc.crds, nil
