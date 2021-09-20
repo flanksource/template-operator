@@ -56,8 +56,6 @@ func (r *RESTManager) Update(ctx context.Context, rest *templatev1.REST) error {
 		return errors.Wrap(err, "failed to send request")
 	}
 
-	fmt.Printf("Resp body: %s\n", string(resp))
-
 	respBody := map[string]interface{}{}
 	if err := json.Unmarshal(resp, &respBody); err != nil {
 		r.Log.Info("failed to unmarshal response body", "error", err)

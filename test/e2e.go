@@ -29,6 +29,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -856,7 +857,7 @@ func TestRestTemplate(ctx context.Context, test *console.TestResults) error {
 				"update": map[string]interface{}{
 					"url":    "http://mockserver.mockserver:80/api/v2/silences",
 					"method": "POST",
-					"body": `	
+					"body": `
 						{
 							"matchers": [
 								{
@@ -905,33 +906,7 @@ func TestRestTemplate(ctx context.Context, test *console.TestResults) error {
 
 	test.Passf(testName, "Operator called update API %s", restName)
 
-	newRest, err := client.GetByKind("REST", "", restName)
-	if err != nil {
-		test.Failf(testName, "failed to get rest object: %v", err)
-		return err
-	}
-	status, ok := newRest.Object["status"].(map[string]interface{})
-	if !ok {
-		err = errors.Errorf("failed to cast rest status to map")
-		test.Failf(testName, err.Error())
-		return err
-	}
-	silenceIDi, found := status["silenceID"]
-	if !found {
-		err = errors.Errorf("did not found silenceID field in rest status")
-		test.Failf(testName, err.Error())
-		return err
-	}
-	silenceID, ok := silenceIDi.(string)
-	if !ok {
-		err = errors.Errorf("expected status.silenceID to be string")
-		test.Failf(testName, err.Error())
-		return err
-	}
-
-	if silenceID != generatedID {
-		err = errors.Errorf("expected silenceID to equal %s, got %s", generatedID, silenceID)
-		test.Failf(testName, err.Error())
+	if err := waitForRESTUpdatedStatusWithBackoff(test, testName, restName, generatedID); err != nil {
 		return err
 	}
 
@@ -939,13 +914,66 @@ func TestRestTemplate(ctx context.Context, test *console.TestResults) error {
 		logger.Errorf("failed to delete rest %s: %v", restName, err)
 	}
 
-	if err := waitForDeleteExpectation(mockserverUrl, deleteExpectationID, silenceID); err != nil {
+	if err := waitForDeleteExpectation(mockserverUrl, deleteExpectationID, generatedID); err != nil {
 		test.Failf(testName, "failed to wait for delete expectation: %v", err)
 		return err
 	}
 
 	test.Passf(testName, "Operator called delete API %s", restName)
 	return nil
+}
+
+func waitForRESTUpdatedStatusWithBackoff(test *console.TestResults, testName, restName, generatedID string) error {
+	backoff := wait.Backoff{
+		Duration: 100 * time.Millisecond,
+		Factor:   1.5,
+		Jitter:   2,
+		Steps:    10,
+		Cap:      15 * time.Second,
+	}
+	var msg string
+	var err error
+
+	for backoff.Steps > 0 {
+		if msg, err = waitForRESTUpdatedStatus(restName, generatedID); err == nil {
+			// if err = r.ControllerClient.Update(ctx, rest); err == nil {
+			return nil
+		}
+		sleepDuration := backoff.Step()
+		time.Sleep(sleepDuration)
+	}
+
+	if err != nil {
+		test.Failf(testName, msg)
+	}
+
+	return err
+}
+
+func waitForRESTUpdatedStatus(restName, generatedID string) (string, error) {
+	newRest, err := client.GetByKind("REST", "", restName)
+	if err != nil {
+		return fmt.Sprintf("failed to get rest object: %v", err), err
+	}
+	status, ok := newRest.Object["status"].(map[string]interface{})
+	if !ok {
+		return fmt.Sprintf("failed to to cast rest status to map: %v", err), err
+	}
+	silenceIDi, found := status["silenceID"]
+	if !found {
+		return fmt.Sprintf("did not find silenceID field in rest status: %v", err), err
+	}
+	silenceID, ok := silenceIDi.(string)
+	if !ok {
+		return fmt.Sprintf("expected status.silenceID to be string: %v", err), err
+	}
+
+	if silenceID != generatedID {
+		msg := fmt.Sprintf("expected silenceID to equal %s, got %s", generatedID, silenceID)
+		return msg, errors.Errorf(msg)
+	}
+
+	return "", nil
 }
 
 func waitForDeploymentChanged(ctx context.Context, deployment *appsv1.Deployment, fn deploymentFn) (*appsv1.Deployment, error) {

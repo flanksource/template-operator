@@ -164,11 +164,11 @@ func (r *RESTReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 
 func (r *RESTReconciler) updateStatus(ctx context.Context, rest *templatev1.REST) error {
 	backoff := wait.Backoff{
-		Duration: 50 * time.Millisecond,
+		Duration: 100 * time.Millisecond,
 		Factor:   1.5,
 		Jitter:   2,
 		Steps:    10,
-		Cap:      5 * time.Second,
+		Cap:      15 * time.Second,
 	}
 	var err error
 
@@ -177,6 +177,7 @@ func (r *RESTReconciler) updateStatus(ctx context.Context, rest *templatev1.REST
 			return nil
 		}
 		sleepDuration := backoff.Step()
+		r.Log.Info("update status failed, sleeping", "duration", sleepDuration, "err", err)
 		time.Sleep(sleepDuration)
 	}
 
