@@ -19,18 +19,25 @@ package controllers
 import (
 	"context"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/flanksource/commons/utils"
 	templatev1 "github.com/flanksource/template-operator/api/v1"
 	"github.com/flanksource/template-operator/k8s"
+	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+)
+
+const (
+	objectModifiedError = "the object has been modified; please apply your changes to the latest version and try again"
 )
 
 var (
@@ -144,17 +151,14 @@ func (r *RESTReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		return ctrl.Result{}, nil
 	}
 
-	err = tm.Update(ctx, rest)
+	statusUpdates, err := tm.Update(ctx, rest)
 	if err != nil {
 		incRESTFailed(name)
 		return reconcile.Result{}, err
 	}
 
-	if !reflect.DeepEqual(rest.Status, oldStatus) {
-		setRestStatus(rest)
-		if err := r.updateStatus(ctx, rest); err != nil {
-			return reconcile.Result{}, err
-		}
+	if err := r.updateStatus(ctx, rest, statusUpdates, oldStatus); err != nil {
+		return reconcile.Result{}, err
 	}
 
 	incRESTSuccess(name)
@@ -162,7 +166,7 @@ func (r *RESTReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	return ctrl.Result{}, nil
 }
 
-func (r *RESTReconciler) updateStatus(ctx context.Context, rest *templatev1.REST) error {
+func (r *RESTReconciler) updateStatus(ctx context.Context, rest *templatev1.REST, statusUpdates, oldStatus map[string]string) error {
 	backoff := wait.Backoff{
 		Duration: 100 * time.Millisecond,
 		Factor:   1.5,
@@ -172,6 +176,11 @@ func (r *RESTReconciler) updateStatus(ctx context.Context, rest *templatev1.REST
 	}
 	var err error
 
+	r.addStatusUpdates(rest, statusUpdates)
+	if reflect.DeepEqual(rest.Status, oldStatus) {
+		return nil
+	}
+
 	for backoff.Steps > 0 {
 		if err = r.ControllerClient.Status().Update(ctx, rest); err == nil {
 			return nil
@@ -179,9 +188,28 @@ func (r *RESTReconciler) updateStatus(ctx context.Context, rest *templatev1.REST
 		sleepDuration := backoff.Step()
 		r.Log.Info("update status failed, sleeping", "duration", sleepDuration, "err", err)
 		time.Sleep(sleepDuration)
+		if strings.Contains(err.Error(), objectModifiedError) {
+			if err := r.ControllerClient.Get(context.Background(), types.NamespacedName{Name: rest.Name}, rest); err != nil {
+				return errors.Wrap(err, "failed to refetch object")
+			}
+			r.addStatusUpdates(rest, statusUpdates)
+			if reflect.DeepEqual(rest.Status, oldStatus) {
+				return nil
+			}
+		}
 	}
 
 	return err
+}
+
+func (r *RESTReconciler) addStatusUpdates(rest *templatev1.REST, statusUpdates map[string]string) {
+	if rest.Status == nil {
+		rest.Status = map[string]string{}
+	}
+	setRestStatus(rest)
+	for k, v := range statusUpdates {
+		rest.Status[k] = v
+	}
 }
 
 func (r *RESTReconciler) SetupWithManager(mgr ctrl.Manager) error {
