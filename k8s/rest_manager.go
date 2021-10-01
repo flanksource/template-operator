@@ -42,9 +42,9 @@ func NewRESTManager(c *kommons.Client, log logr.Logger) (*RESTManager, error) {
 	return tm, nil
 }
 
-func (r *RESTManager) Update(ctx context.Context, rest *templatev1.REST) error {
+func (r *RESTManager) Update(ctx context.Context, rest *templatev1.REST) (map[string]string, error) {
 	if sameGeneration(rest) {
-		return nil
+		return nil, nil
 	}
 
 	url := rest.Spec.Update.URL
@@ -53,29 +53,29 @@ func (r *RESTManager) Update(ctx context.Context, rest *templatev1.REST) error {
 
 	resp, err := r.doRequest(ctx, rest, url, method, body)
 	if err != nil {
-		return errors.Wrap(err, "failed to send request")
+		return nil, errors.Wrap(err, "failed to send request")
 	}
-
-	fmt.Printf("Resp body: %s\n", string(resp))
 
 	respBody := map[string]interface{}{}
 	if err := json.Unmarshal(resp, &respBody); err != nil {
 		r.Log.Info("failed to unmarshal response body", "error", err)
 	}
 
+	statusUpdates := map[string]string{}
+
 	if rest.Spec.Update.Status != nil {
 		for k, v := range rest.Spec.Update.Status {
 			value, err := r.templateStatus(rest, respBody, v)
 			if err != nil {
-				return errors.Wrapf(err, "failed to template status field %s", k)
+				return nil, errors.Wrapf(err, "failed to template status field %s", k)
 			}
-			rest.Status[k] = value
+			statusUpdates[k] = value
 		}
 	}
 
-	rest.Status["observedGeneration"] = strconv.FormatInt(rest.ObjectMeta.Generation, 10)
+	statusUpdates["observedGeneration"] = strconv.FormatInt(rest.ObjectMeta.Generation, 10)
 
-	return nil
+	return statusUpdates, nil
 }
 
 func (r *RESTManager) Delete(ctx context.Context, rest *templatev1.REST) error {

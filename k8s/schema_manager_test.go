@@ -14,7 +14,7 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"github.com/pkg/errors"
-	extapi "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1beta1"
+	extapi "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes"
@@ -420,7 +420,7 @@ func clientset() *kubernetes.Clientset {
 	return clientset
 }
 
-func crdClient() extapi.ApiextensionsV1beta1Interface {
+func crdClient() extapi.ApiextensionsV1Interface {
 	client := kommonsClient()
 	restConfig, err := client.GetRESTConfig()
 	if err != nil {

@@ -28,7 +28,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/tidwall/gjson"
 	v1 "k8s.io/api/core/v1"
-	extapi "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1beta1"
+	extapi "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
@@ -250,6 +250,12 @@ func (tm *TemplateManager) HandleSource(ctx context.Context, template *templatev
 	if err != nil {
 		return result, err
 	}
+	tobjs, err := tm.getObjectsFromResourcesTemplate(template.Spec.ResourcesTemplate, *target)
+	if err != nil {
+		return result, err
+	}
+	objs = append(objs, tobjs...)
+
 	for _, obj := range objs {
 		ready, msg, err, rslt := tm.checkDependentObjects(&obj, objs)
 		if err != nil {
@@ -371,7 +377,10 @@ func (tm *TemplateManager) duckTypeTemplateResult(objYaml []byte) ([]byte, error
 	if err := yaml.Unmarshal(objYaml, &obj.Object); err != nil {
 		return nil, fmt.Errorf("error parsing template result: %v", err)
 	}
+	return tm.duckTypeTemplateResultObject(obj)
+}
 
+func (tm *TemplateManager) duckTypeTemplateResultObject(obj *unstructured.Unstructured) ([]byte, error) {
 	version := obj.GetAPIVersion()
 	parts := strings.Split(version, "/")
 	var apiVersion, apiGroup string
@@ -810,4 +819,62 @@ func (tm *TemplateManager) getObjectsFromResources(resources []runtime.RawExtens
 		}
 	}
 	return objs, nil
+}
+
+func (tm *TemplateManager) getObjectsFromResourcesTemplate(template string, target unstructured.Unstructured) ([]unstructured.Unstructured, error) {
+	var objs []unstructured.Unstructured
+
+	targetCopy := target.DeepCopy()
+
+	data, err := tm.processTemplate([]byte(template), targetCopy)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to template resources")
+	}
+	uobjs, err := kommons.GetUnstructuredObjects(data)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to get unstructured objects")
+	}
+
+	for _, u := range uobjs {
+		objs = append(objs, *u)
+	}
+
+	return objs, nil
+}
+
+func (tm *TemplateManager) processTemplate(data []byte, vars interface{}) ([]byte, error) {
+	tpl, err := template.New("").Funcs(tm.FuncMap).Parse(string(data))
+
+	if err != nil {
+		return nil, fmt.Errorf("invalid template %s: %v", strings.Split(string(data), "\n")[0], err)
+	}
+
+	rawVars, _ := yaml.Marshal(vars)
+	source := make(map[string]interface{})
+	if err := yaml.Unmarshal(rawVars, &source); err != nil {
+		return nil, err
+	}
+
+	var buf bytes.Buffer
+	if err := tpl.Execute(&buf, source); err != nil {
+		return nil, fmt.Errorf("error executing template %s: %v", strings.Split(string(data), "\n")[0], err)
+	}
+
+	objs, err := kommons.GetUnstructuredObjects(buf.Bytes())
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to get unstructured objects")
+	}
+
+	tm.Log.V(2).Info("Got objects on resourcesTemplate", "count", len(objs))
+
+	result := ""
+	for _, o := range objs {
+		duckTyped, err := tm.duckTypeTemplateResultObject(o)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to duck type object")
+		}
+		result += string(duckTyped) + "\n---\n"
+	}
+
+	return []byte(result), nil
 }
