@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net/http"
 	"regexp"
 	"sort"
@@ -33,6 +34,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	yamlutil "k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/yaml"
@@ -214,6 +216,37 @@ func (tm *TemplateManager) Run(ctx context.Context, template *templatev1.Templat
 
 	tm.Log.V(3).Info("Reconcile Complete", "template", template.Name)
 	return
+}
+
+func (tm *TemplateManager) RunOnce(ctx context.Context, templateFile string, objFile string) ([]byte, error) {
+	templateBytes, err := ioutil.ReadFile(templateFile)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to read template file: %s", templateFile)
+	}
+	objBytes, err := ioutil.ReadFile(objFile)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to read obj file: %s", objFile)
+	}
+
+	template := &templatev1.Template{}
+	decoder := yamlutil.NewYAMLOrJSONDecoder(bytes.NewReader([]byte(templateBytes)), 1024)
+	if err := decoder.Decode(&template); err != nil {
+		return nil, errors.Wrapf(err, "failed to decode template")
+	}
+
+	obj := &unstructured.Unstructured{}
+	decoder = yamlutil.NewYAMLOrJSONDecoder(bytes.NewReader([]byte(objBytes)), 1024)
+	if err := decoder.Decode(obj); err != nil {
+		return nil, errors.Wrapf(err, "failed to decode obj")
+	}
+
+	tb, _ := yaml.Marshal(template)
+	ob, _ := yaml.Marshal(obj)
+
+	fmt.Printf("template:\n%s\n", string(tb))
+	fmt.Printf("obj:\n%s\n", string(ob))
+
+	return []byte{}, nil
 }
 
 func (tm *TemplateManager) HandleSource(ctx context.Context, template *templatev1.Template, source unstructured.Unstructured) (result ctrl.Result, err error) {

@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: template-default-secrets
+  namespace: test-secrets
+  labels:
+    secrets.flanksource.com/label: defaults
+stringData:
+  domain: 127.0.0.1.nip.io
+  foo: bar
+type: Opaque

@@ -1,0 +1,22 @@
+apiVersion: templating.flanksource.com/v1
+kind: Template
+metadata:
+  name: copy-secret
+spec:
+  source:
+    apiVersion: v1
+    kind: Secret
+    namespaceSelector:
+      matchLabels:
+        template-operator-test: secrets
+    labelSelector:
+      matchLabels:
+        secrets.flanksource.com/label: defaults
+  resources:
+    - apiVersion: v1
+      kind: Secret
+      metadata:
+        name: "generated-{{.metadata.name}}"
+        namespace: "{{.metadata.namespace}}"
+      stringData:
+        url: "https://{{.data.domain}}"

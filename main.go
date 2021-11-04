@@ -17,7 +17,8 @@ limitations under the License.
 package main
 
 import (
-	"flag"
+	"context"
+	"errors"
 	"os"
 	"time"
 
@@ -28,9 +29,9 @@ import (
 	templatingflanksourcecomv1 "github.com/flanksource/template-operator/api/v1"
 	"github.com/flanksource/template-operator/controllers"
 	"github.com/flanksource/template-operator/k8s"
-	zaplogfmt "github.com/sykesm/zap-logfmt"
-	uzap "go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
+	"github.com/go-logr/logr"
+	"github.com/go-logr/zapr"
+	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v2"
 	apiv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	extapi "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1"
@@ -38,13 +39,14 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	ctrlzap "sigs.k8s.io/controller-runtime/pkg/log/zap"
 	// +kubebuilder:scaffold:imports
 )
 
 var (
-	scheme   = runtime.NewScheme()
-	setupLog = ctrl.Log.WithName("setup")
+	scheme     = runtime.NewScheme()
+	setupLog   = ctrl.Log.WithName("setup")
+	ctrlLogger logr.Logger
 )
 
 func init() {
@@ -58,32 +60,36 @@ func init() {
 	yaml.FutureLineWrap()
 }
 
-func setupLogger(opts zap.Options) {
-	configLog := uzap.NewProductionEncoderConfig()
-	configLog.EncodeTime = func(ts time.Time, encoder zapcore.PrimitiveArrayEncoder) {
-		encoder.AppendString(ts.UTC().Format(time.RFC3339Nano))
+func setupLogger(cmd *cobra.Command, args []string) error {
+	zapLogger := logger.GetZapLogger()
+	if zapLogger == nil {
+		logger.Fatalf("failed to get zap logger")
+		return errors.New("failed to get zap logger")
 	}
-	logfmtEncoder := zaplogfmt.NewEncoder(configLog)
 
-	logger := zap.New(zap.UseFlagOptions(&opts), zap.Encoder(logfmtEncoder))
-	ctrl.SetLogger(logger)
+	loggr := ctrlzap.NewRaw(
+		ctrlzap.UseDevMode(true),
+		ctrlzap.WriteTo(os.Stderr),
+		ctrlzap.Level(zapLogger.Level),
+		ctrlzap.StacktraceLevel(zapLogger.StackTraceLevel),
+		ctrlzap.Encoder(zapLogger.GetEncoder()),
+	)
+
+	ctrlLogger = zapr.NewLogger(loggr)
+	ctrl.SetLogger(ctrlLogger)
+
+	return nil
 }
 
-func main() {
-	var metricsAddr string
-	var enableLeaderElection bool
-	var syncPeriod, expire time.Duration
-	flag.DurationVar(&syncPeriod, "sync-period", 5*time.Minute, "The time duration to run a full reconcile")
-	flag.DurationVar(&expire, "expire", 15*time.Minute, "The time duration to expire API resources cache")
-	flag.StringVar(&metricsAddr, "metrics-addr", ":8080", "The address the metric endpoint binds to.")
-	flag.BoolVar(&enableLeaderElection, "enable-leader-election", false,
-		"Enable leader election for controller manager. "+
-			"Enabling this will ensure there is only one active controller manager.")
+func serve(cmd *cobra.Command, args []string) {
+	if err := setupLogger(cmd, args); err != nil {
+		logger.Fatalf("failed to setup logger: %v", err)
+	}
 
-	opts := zap.Options{}
-	opts.BindFlags(flag.CommandLine)
-	flag.Parse()
-	setupLogger(opts)
+	metricsAddr, _ := cmd.Flags().GetString("metrics-addr")
+	syncPeriod, _ := cmd.Flags().GetDuration("sync-period")
+	expire, _ := cmd.Flags().GetDuration("expire")
+	enableLeaderElection, _ := cmd.Flags().GetBool("enable-leader-election")
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:             scheme,
@@ -164,6 +170,97 @@ func main() {
 	setupLog.Info("starting manager")
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		setupLog.Error(err, "problem running manager")
+		os.Exit(1)
+	}
+}
+
+func run(cmd *cobra.Command, args []string) {
+	template, _ := cmd.Flags().GetString("template")
+	obj, _ := cmd.Flags().GetString("obj")
+	expire := 15 * time.Minute
+
+	client, err := kommons.NewClientFromDefaults(logger.StandardLogger())
+	if err != nil {
+		setupLog.Error(err, "failed to create client")
+		os.Exit(1)
+	}
+	clientset, err := client.GetClientset()
+	if err != nil {
+		setupLog.Error(err, "failed to get clientset")
+		os.Exit(1)
+	}
+	restConfig, err := client.GetRESTConfig()
+	if err != nil {
+		setupLog.Error(err, "failed to get rest config")
+		os.Exit(1)
+	}
+	crdClient, err := extapi.NewForConfig(restConfig)
+	if err != nil {
+		setupLog.Error(err, "failed to get crd client")
+		os.Exit(1)
+	}
+	schemaCache := k8s.NewSchemaCache(clientset, crdClient, expire, ctrl.Log.WithName("schema-cache"))
+
+	watcher, err := k8s.NewWatcher(client, ctrl.Log.WithName("watcher"))
+	if err != nil {
+		setupLog.Error(err, "failed to setup watcher")
+		os.Exit(1)
+	}
+
+	tm, err := k8s.NewTemplateManager(client, ctrlLogger, schemaCache, &k8s.NullEventRecorder{}, watcher)
+	if err != nil {
+		setupLog.Error(err, "failed to create template manager")
+		os.Exit(1)
+	}
+
+	if _, err := tm.RunOnce(context.Background(), template, obj); err != nil {
+		setupLog.Error(err, "failed to run template")
+		os.Exit(1)
+	}
+}
+
+func main() {
+	var rootCmd = &cobra.Command{
+		Use:   "template-operator",
+		Short: "The Template Operator is for platform engineers needing an easy and reliable way to create, copy and update kubernetes resources.",
+		Long:  `The Template Operator is for platform engineers needing an easy and reliable way to create, copy and update kubernetes resources.`,
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			logger.UseZap(cmd.Flags())
+			return setupLogger(cmd, args)
+		},
+	}
+	// Set Development mode value
+	rootCmd.PersistentFlags().Bool("json-logs", false, "Enable json logging")
+	rootCmd.PersistentFlags().String("loglevel", "info",
+		"Zap Level to configure the verbosity of logging. Can be one of 'debug', 'info', 'error', "+
+			"or any integer value > 0 which corresponds to custom debug levels of increasing verbosity")
+
+	serveCmd := &cobra.Command{
+		Use:   "serve",
+		Short: "Run kubernetes controller",
+		Long:  "Run kubernetes controller",
+		Run:   serve,
+	}
+	serveCmd.Flags().Duration("sync-period", 5*time.Minute, "The time duration to run a full reconcile")
+	serveCmd.Flags().Duration("expire", 15*time.Minute, "The time duration to expire API resources cache")
+	serveCmd.Flags().String("metrics-addr", ":8080", "The address the metric endpoint binds to.")
+	serveCmd.Flags().Bool("enable-leader-election", false,
+		"Enable leader election for controller manager. "+
+			"Enabling this will ensure there is only one active controller manager.")
+	rootCmd.AddCommand(serveCmd)
+
+	runCmd := &cobra.Command{
+		Use:   "run",
+		Short: "Execute template locally",
+		Long:  "Execute template locally",
+		Run:   run,
+	}
+	runCmd.Flags().String("template", "", "The template to run")
+	runCmd.Flags().String("obj", "", "The object used as source for template")
+	rootCmd.AddCommand(runCmd)
+
+	if err := rootCmd.Execute(); err != nil {
+		setupLog.Error(err, "problem running root command")
 		os.Exit(1)
 	}
 }
