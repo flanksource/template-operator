@@ -12,6 +12,12 @@ The Template Operator is for platform engineers needing an easy and reliable way
 - **Simple** – Easy to use and quick to get started.
 - **Reconciliation based** – Changes are applied quickly and resiliently (unlike webhooks) at runtime.
 
+## Further reading
+
+This README replicates much of the content from [Simple, reconciliation-based runtime templating](/docs/template-operator-intro-part-1.md).
+
+For further examples, see part 2 in the series: [Powering up with Custom Resource Definitions (CRDs)](/docs/template-operator-intro-part-2.md).
+
 ### Alternatives
 
 There are alternative templating systems in use by the k8s community – each has valid use cases and noting the downsides for runtime templating is not intended as an indictment – all are excellent choices under the right conditions.
@@ -277,4 +283,3 @@ store-7674            development-secrets-username     Opaque   1      5s
 [crossplane]: https://crossplane.io/  "Crossplane"
 [kyverno]: https://kyverno.io/  "Kyverno"
 [helm]: https://helm.sh/ "Helm"
-
