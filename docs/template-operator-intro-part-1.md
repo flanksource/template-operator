@@ -1,3 +1,12 @@
+---
+Author: Saul Nachman & Moshe Immerman
+Last updated: 22/07/2021
+---
+
+<!-- markdownlint-disable MD041 -->
+*This is part 1 of a series demonstrating the Template Operator's capabilities, starting in this post with [Creating resources per namespace](#Use-case-creating-resources-per-namespace) and [Copying secrets between namespaces](#Use-case-Copying-secrets-between-namespaces).*
+<!-- markdownlint-enable MD041 -->
+
 # Template Operator
 
 <!-- markdownlint-disable MD036 -->
@@ -12,12 +21,6 @@ The Template Operator is for platform engineers needing an easy and reliable way
 - **Simple** – Easy to use and quick to get started.
 - **Reconciliation based** – Changes are applied quickly and resiliently (unlike webhooks) at runtime.
 
-## Further reading
-
-This README replicates much of the content from [Simple, reconciliation-based runtime templating](/docs/template-operator-intro-part-1.md).
-
-For further examples, see part 2 in the series: [Powering up with Custom Resource Definitions (CRDs)](/docs/template-operator-intro-part-2.md).
-
 ### Alternatives
 
 There are alternative templating systems in use by the k8s community – each has valid use cases and noting the downsides for runtime templating is not intended as an indictment – all are excellent choices under the right conditions.
@@ -29,6 +32,10 @@ There are alternative templating systems in use by the k8s community – each ha
 | [kyverno][kyverno]       | Webhook based<br />Designed as a policy engine           |
 | [helm][helm]             | Not 100% YAML<br />Not reconciliation based (build time) |
 <!-- markdownlint-enable MD033 -->
+
+[crossplane]: https://crossplane.io/  "Crossplane"
+[kyverno]: https://kyverno.io/  "Kyverno"
+[helm]: https://helm.sh/ "Helm"
 
 ## Installation
 
@@ -60,8 +67,8 @@ template-operator    template-operator-controller-manager-6bd8c5ff58-sz8q6   2/2
 To follow the manager logs, open a new terminal and, changing what needs to be changed, run :
 
 ```bash
-kubectl logs -f --since 10m -n template-operator deploy/template-operator-controller-manager
--c  manager
+kubectl logs -f --since 10m -n template-operator \
+template-operator-controller-manager--6bd8c5ff58-sz8q6 manager
 ```
 
 These logs are where reconciliation successes and errors show up – and the best place to look when debugging.
@@ -197,9 +204,9 @@ And you're done! In the next example, you'll learn how to add a `Template` to co
 
 ## Use case: Copying secrets between namespaces
 
-> *As a platform engineer, I need to automatically copy appropriate Secrets to newly created Namespaces so that application teams have access to the Secrets they need by default.*
+*As a platform engineer, I need to automatically copy appropriate Secrets to newly created Namespaces so that application teams have access to the Secrets they need by default.*
 
-Suppose you have a `Namespace` containing `Secrets` you want to copy to every development `Namespace`.
+Suppose you have a `Namespace` containing `Secrets` you want to copy to every  development `Namespace`.
 
 ### Step 1: Add secrets and namespace
 
@@ -280,6 +287,6 @@ store-7674            development-secrets-api          Opaque   1      5s
 store-7674            development-secrets-username     Opaque   1      5s
 ```
 
-[crossplane]: https://crossplane.io/  "Crossplane"
-[kyverno]: https://kyverno.io/  "Kyverno"
-[helm]: https://helm.sh/ "Helm"
+## Next up
+
+For the next installation see [Template Operator – Powering up with Custom Resource Definitions (CRDs)](/template-operator-intro-part-2.md) where you'll be expanding on these patterns to see how combining the Template Operator with self-built CRDs taps into the next level of its power.
