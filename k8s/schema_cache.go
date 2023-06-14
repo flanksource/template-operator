@@ -177,7 +177,7 @@ func (sc *SchemaCache) fetchAndSetSchema() error {
 }
 
 func (sc *SchemaCache) fetchAndSetResources() error {
-	serverResources, err := sc.clientset.ServerResources()
+	serverResources, err := sc.clientset.ServerPreferredResources()
 	if err != nil {
 		return errors.Wrap(err, "failed to list server resources")
 	}

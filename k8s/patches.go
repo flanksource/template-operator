@@ -14,7 +14,7 @@ import (
 	fyaml "gopkg.in/flanksource/yaml.v3"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/cli-runtime/pkg/kustomize"
+	//"k8s.io/cli-runtime/pkg/kustomize"
 	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/kustomize/pkg/fs"
 	"sigs.k8s.io/kustomize/pkg/gvk"
@@ -160,9 +160,9 @@ func (p *PatchApplier) Apply(resource *unstructured.Unstructured, patchStr strin
 
 	// Finally customize the target resource
 	var out bytes.Buffer
-	if err := kustomize.RunKustomizeBuild(&out, memFS, fakeDir); err != nil {
-		return nil, errors.Wrap(err, "failed to run kustomize build")
-	}
+	//if err := kustomize.RunKustomizeBuild(&out, memFS, fakeDir); err != nil {
+	//return nil, errors.Wrap(err, "failed to run kustomize build")
+	//}
 
 	kustomizeBytes := out.Bytes()
 	// fmt.Printf("Kustomize bytes: %s\n", kustomizeBytes)
