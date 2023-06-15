@@ -14,9 +14,9 @@ import (
 	fyaml "gopkg.in/flanksource/yaml.v3"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	//"k8s.io/cli-runtime/pkg/kustomize"
 	"k8s.io/client-go/kubernetes"
-	"sigs.k8s.io/kustomize/pkg/fs"
+	"sigs.k8s.io/kustomize/api/krusty"
+	"sigs.k8s.io/kustomize/kyaml/filesys"
 	"sigs.k8s.io/kustomize/pkg/gvk"
 	"sigs.k8s.io/kustomize/pkg/patch"
 	"sigs.k8s.io/kustomize/pkg/types"
@@ -65,7 +65,7 @@ func (p *PatchApplier) Apply(resource *unstructured.Unstructured, patchStr strin
 	}
 
 	// create an in memory fs to use for the kustomization
-	memFS := fs.MakeFakeFS()
+	memFS := filesys.MakeFsInMemory()
 
 	fakeDir := "/"
 	// for Windows we need this to be a drive because kustomize uses filepath.Abs()
@@ -158,17 +158,19 @@ func (p *PatchApplier) Apply(resource *unstructured.Unstructured, patchStr strin
 	}
 	memFS.WriteFile(filepath.Join(fakeDir, "kustomization.yaml"), kbytes) // nolint: errcheck
 
-	// Finally customize the target resource
-	var out bytes.Buffer
-	//if err := kustomize.RunKustomizeBuild(&out, memFS, fakeDir); err != nil {
-	//return nil, errors.Wrap(err, "failed to run kustomize build")
-	//}
+	// Finally kustomize the target resource
+	kustomizer := krusty.MakeKustomizer(nil)
+	out, err := kustomizer.Run(memFS, fakeDir)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to run kustomize build")
+	}
 
-	kustomizeBytes := out.Bytes()
-	// fmt.Printf("Kustomize bytes: %s\n", kustomizeBytes)
-
-	if err := yaml.Unmarshal(kustomizeBytes, &resource); err != nil {
-		return nil, errors.Wrap(err, "failed to unmarshal kustomize output into resource")
+	for _, r := range out.Resources() {
+		if b, err := r.AsYAML(); err == nil {
+			if err := yaml.Unmarshal(b, &resource); err != nil {
+				return nil, errors.Wrap(err, "failed to unmarshal kustomize output into resource "+string(b))
+			}
+		}
 	}
 
 	return resource, nil
