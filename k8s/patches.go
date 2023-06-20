@@ -159,8 +159,7 @@ func (p *PatchApplier) Apply(resource *unstructured.Unstructured, patchStr strin
 	memFS.WriteFile(filepath.Join(fakeDir, "kustomization.yaml"), kbytes) // nolint: errcheck
 
 	// Finally kustomize the target resource
-	kustomizer := krusty.MakeKustomizer(nil)
-	out, err := kustomizer.Run(memFS, fakeDir)
+	out, err := krusty.MakeKustomizer(krusty.MakeDefaultOptions()).Run(memFS, fakeDir)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to run kustomize build")
 	}

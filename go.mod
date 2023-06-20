@@ -4,7 +4,7 @@ go 1.19
 
 require (
 	github.com/flanksource/commons v1.10.0
-	github.com/flanksource/kommons v0.31.1
+	github.com/flanksource/kommons v0.31.2
 	github.com/go-logr/logr v1.2.4
 	github.com/go-openapi/jsonpointer v0.19.6
 	github.com/go-openapi/spec v0.20.9
@@ -27,6 +27,7 @@ require (
 	k8s.io/client-go v12.0.0+incompatible
 	sigs.k8s.io/controller-runtime v0.15.0
 	sigs.k8s.io/kustomize v2.0.3+incompatible
+	sigs.k8s.io/kustomize/api v0.13.2
 	sigs.k8s.io/yaml v1.3.0
 )
 
@@ -36,7 +37,6 @@ require (
 	github.com/xlab/treeprint v1.1.0 // indirect
 	go.starlark.net v0.0.0-20200306205701-8dd3e2ee1dd5 // indirect
 	k8s.io/cli-runtime v0.27.2 // indirect
-	sigs.k8s.io/kustomize/api v0.13.2 // indirect
 )
 
 require (
@@ -198,7 +198,7 @@ require (
 	k8s.io/kube-openapi v0.0.0-20230501164219-8b0f38b5fd1f // indirect
 	k8s.io/utils v0.0.0-20230505201702-9f6742963106 // indirect
 	sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd // indirect
-	sigs.k8s.io/kustomize/kyaml v0.14.2 // indirect
+	sigs.k8s.io/kustomize/kyaml v0.14.2
 	sigs.k8s.io/structured-merge-diff/v4 v4.2.3 // indirect
 )
 
@@ -208,5 +208,4 @@ replace (
 	//	google.golang.org/grpc => google.golang.org/grpc v1.29.1
 	//	k8s.io/cli-runtime => k8s.io/cli-runtime v0.20.15
 	k8s.io/client-go => k8s.io/client-go v0.27.2
-
 )
