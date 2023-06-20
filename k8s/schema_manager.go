@@ -76,7 +76,7 @@ func NewSchemaManager(clientset *kubernetes.Clientset, crdClient extapi.Apiexten
 		return nil, errors.Wrap(err, "failed to unmarshal openapi")
 	}
 
-	serverResources, err := clientset.ServerResources()
+	serverResources, err := clientset.ServerPreferredResources()
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to list server resources")
 	}

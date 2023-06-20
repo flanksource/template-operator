@@ -120,7 +120,7 @@ func (r *CRDReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		return err
 	}
 	if v1 {
-		return c.Watch(&source.Kind{Type: &apiv1.CustomResourceDefinition{}}, &handler.EnqueueRequestForObject{})
+		return c.Watch(source.Kind(mgr.GetCache(), &apiv1.CustomResourceDefinition{}), &handler.EnqueueRequestForObject{})
 	}
-	return c.Watch(&source.Kind{Type: &apiv1beta1.CustomResourceDefinition{}}, &handler.EnqueueRequestForObject{})
+	return c.Watch(source.Kind(mgr.GetCache(), &apiv1beta1.CustomResourceDefinition{}), &handler.EnqueueRequestForObject{})
 }
